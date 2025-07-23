@@ -1,71 +1,42 @@
-# dtsearchsyntaxhelper README
+# dtSearch Syntax Helper
 
-This is the README for your extension "dtsearchsyntaxhelper". After writing up a brief description, we recommend including the following sections.
+A VS Code extension that provides advanced syntax highlighting and formatting tools for dtSearch boolean queries.
 
 ## Features
+- **🎨 Syntax Highlighting**: Color-coded operators, search terms, and noise words
+- **⚠️ Error Detection**: Real-time validation for unbalanced parentheses and quotes  
+- **🔧 Query Cleanup**: Smart formatting with operator normalization and quote standardization
+- **📊 Status Integration**: Live balance checking in status bar
+- **📚 Built-in Help**: Comprehensive dtSearch operator reference
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+## Quick Start
+1. Install the extension
+2. Select any dtSearch query text
+3. Press `Ctrl+Shift+F` to clean up and enable syntax highlighting
+4. Get real-time visual feedback as you edit
 
-For example if there is an image subfolder under your extension project workspace:
+## File Support
+- Native support for `.dts` files
+- Works with any file type when using cleanup command
 
-\!\[feature X\]\(images/feature-x.png\)
+Perfect for legal discovery, enterprise search, and dtSearch query development.
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
+## Configuration
 
 This extension contributes the following settings:
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+* `dtsearch.enableSyntaxHighlighting`: Enable/disable real-time syntax highlighting
+* `dtsearch.highlightNoiseWords`: Highlight noise words that are typically ignored by dtSearch
+* `dtsearch.showBalanceErrors`: Show red squiggly lines for unbalanced parentheses and quotes
+* `dtsearch.autoCleanupOnSave`: Automatically clean up queries when saving .dts files
 
-## Known Issues
+## Commands
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+* `DT Search: Clean Up Query` (`Ctrl+Shift+F`): Format and normalize selected query text
+* `DT Search: Toggle Syntax Highlighting`: Enable/disable highlighting for current editor
+* `DT Search: Show Operator Help` (`F1` in .dts files): Display comprehensive operator reference
 
-## Release Notes
+## License
 
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+MIT License - see LICENSE file for details.
+>>>>>>> 29abdb3476bc18789130e2fcbaff49604570501c
