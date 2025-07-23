@@ -31,6 +31,14 @@ export function activate(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration('dtsearch');
   isHighlightingEnabled = config.get('enableSyntaxHighlighting', true);
 
+  // Register hover provider for noise word tooltips
+  const hoverProvider = vscode.languages.registerHoverProvider('*', {
+    provideHover(document, position, token) {
+      return provideNoiseWordHover(document, position);
+    }
+  });
+  context.subscriptions.push(hoverProvider);
+
   // DT Search: Clean Up Query command
   let cleanUpQuery = vscode.commands.registerCommand('dtsearchsyntaxhelper.cleanUpQuery', async () => {
     const editor = vscode.window.activeTextEditor;
@@ -324,6 +332,59 @@ function getHelpContent(): string {
     <p>These common words are typically ignored by dtSearch: a, an, and, are, as, at, be, by, for, from, has, he, in, is, it, of, on, that, the, to, was, will, with...</p>
 </body>
 </html>`;
+}
+
+function provideNoiseWordHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | undefined {
+  // Only provide hovers for dtSearch files or when force mode is active
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || (!isDtSearchFile(editor) && !forceDtSearchMode)) {
+    return undefined;
+  }
+
+  // Get the word at the current position
+  const wordRange = document.getWordRangeAtPosition(position);
+  if (!wordRange) {
+    return undefined;
+  }
+
+  const word = document.getText(wordRange).toLowerCase();
+  
+  // Define noise words (same as in highlightSyntax function)
+  const noiseWords = new Set([
+    'a', 'about', 'after', 'all', 'also', 'an', 'and', 'another', 'any', 'are', 'as', 'at',
+    'be', 'because', 'been', 'before', 'being', 'between', 'both', 'but', 'by',
+    'came', 'can', 'come', 'could',
+    'did', 'do',
+    'each', 'even',
+    'for', 'from', 'further', 'furthermore',
+    'get', 'got',
+    'had', 'has', 'have', 'he', 'her', 'here', 'hi', 'him', 'himself', 'his', 'how', 'however',
+    'i', 'if', 'in', 'indeed', 'into', 'is', 'it', 'its',
+    'just',
+    'like',
+    'made', 'many', 'me', 'might', 'more', 'moreover', 'most', 'much', 'must', 'my',
+    'never', 'not', 'now',
+    'of', 'on', 'only', 'or', 'other', 'our', 'out', 'over',
+    'said', 'same', 'see', 'she', 'should', 'since', 'some', 'still', 'such',
+    'take', 'than', 'that', 'the', 'their', 'them', 'then', 'there', 'therefore', 'these', 'they', 'this', 'those', 'through', 'thus', 'to', 'too',
+    'under', 'up',
+    'very',
+    'was', 'way', 'we', 'well', 'were', 'what', 'when', 'where', 'which', 'while', 'who', 'will', 'with', 'would',
+    'you', 'your'
+  ]);
+
+  // Check if the word is a noise word
+  if (noiseWords.has(word)) {
+    const hoverText = new vscode.MarkdownString();
+    hoverText.appendMarkdown(`**dtSearch Noise Word:** \`${word}\`\n\n`);
+    hoverText.appendMarkdown(`This word is typically **ignored** by dtSearch engines during searches. `);
+    hoverText.appendMarkdown(`Common words like "${word}" are filtered out to improve search performance and relevance.\n\n`);
+    hoverText.appendMarkdown(`💡 **Tip:** Use quotes around phrases if you need to search for noise words: \`"the ${word}"\``);
+    
+    return new vscode.Hover(hoverText, wordRange);
+  }
+
+  return undefined;
 }
 
 function initializeDecorations() {
