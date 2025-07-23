@@ -3,7 +3,7 @@
   "displayName": "dtSearchSyntaxHelper",
   "description": "Advanced syntax highlighting and query tools for dtSearch queries with real-time error detection",
   "version": "0.0.1",
-  "publisher": "your-publisher-name",
+  "publisher": "berk8520",
   "repository": {
     "type": "git",
     "url": "https://github.com/berk8520/dtsearch-syntax-helper.git"
