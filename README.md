@@ -2,6 +2,17 @@
 
 A VS Code extension that provides advanced syntax highlighting and formatting tools for dtSearch boolean queries.
 
+## Screenshots
+
+### Syntax Highlighting in Action
+![dtSearch syntax highlighting showing color-coded operators, parentheses matching, and noise word highlighting](images/syntax-highlighting-demo.png)
+
+### Error Detection
+![Real-time error detection showing unbalanced parentheses and quotes with red squiggly lines](images/error-detection-demo.png)
+
+### Query Cleanup
+![Before and after query cleanup showing normalized operators and standardized quotes](images/query-cleanup-demo.png)
+
 ## Features
 - **🎨 Syntax Highlighting**: Color-coded operators, search terms, and noise words
 - **⚠️ Error Detection**: Real-time validation for unbalanced parentheses and quotes  
@@ -39,4 +50,3 @@ This extension contributes the following settings:
 ## License
 
 MIT License - see LICENSE file for details.
->>>>>>> 29abdb3476bc18789130e2fcbaff49604570501c
