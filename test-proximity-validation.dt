@@ -1,0 +1,31 @@
+// dtSearch Query Test File - Proximity Validation Examples
+
+// These patterns should trigger ambiguous proximity warnings:
+
+// Pattern 1: Complex expressions with proximity operator
+(apple AND banana) W/10 (pear AND grape)
+(cat OR dog) W/5 (mouse AND bird)
+
+// Pattern 2: Nested proximity expressions  
+(apple w/10 banana) w/10 (pear and grape)
+(term1 w/5 term2) w/3 (term3 or term4)
+
+// Pattern 3: Multiple proximity operators in sequence
+apple w/10 banana w/5 cherry
+document w/20 important w/10 information
+
+// These should be fine (clearer proximity usage):
+apple W/10 banana
+"exact phrase" W/5 keyword
+apple AND (banana W/10 cherry)
+
+// Mixed operator validation:
+apple AND banana OR cherry
+
+// Noise words (should show hover tooltips):
+apple and the banana
+document with a keyword
+
+// Test real-time formatting:
+apple w5 banana
+document w10 keyword

@@ -14,12 +14,19 @@ let isHighlightingEnabled = true;
 let statusBarItem: vscode.StatusBarItem;
 let forceDtSearchMode = false; // Flag to force dtSearch highlighting
 
+// Diagnostic collection for syntax validation
+let diagnosticCollection: vscode.DiagnosticCollection;
+
 // Debouncing for performance
 let highlightTimeout: NodeJS.Timeout | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   // Initialize decoration types and status bar
   initializeDecorations();
+  
+  // Initialize diagnostic collection for syntax validation
+  diagnosticCollection = vscode.languages.createDiagnosticCollection('dtsearch');
+  context.subscriptions.push(diagnosticCollection);
   
   // Initialize status bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -158,6 +165,7 @@ export function activate(context: vscode.ExtensionContext) {
     
     if (editor && isDtSearchFile(editor)) {
       debouncedHighlight(editor);
+      validateSyntax(editor.document);
       updateStatusBar();
     }
   }, null, context.subscriptions);
@@ -171,6 +179,7 @@ export function activate(context: vscode.ExtensionContext) {
       handleRealTimeFormatting(event, vscode.window.activeTextEditor);
       
       debouncedHighlight(vscode.window.activeTextEditor);
+      validateSyntax(event.document);
       updateStatusBar();
     }
   }, null, context.subscriptions);
@@ -945,6 +954,304 @@ function applyWordFormattingWithTrigger(editor: vscode.TextEditor, startChar: nu
   });
 }
 
+function validateSyntax(document: vscode.TextDocument) {
+  // Check if syntax validation is enabled
+  const config = vscode.workspace.getConfiguration('dtsearch');
+  if (!config.get('enableSyntaxValidation', true)) {
+    diagnosticCollection.clear();
+    return;
+  }
+
+  const diagnostics: vscode.Diagnostic[] = [];
+  const text = document.getText();
+  const lines = text.split('\n');
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    const lineNumber = lineIndex;
+
+    // Check for consecutive operators (AND AND, OR OR, etc.)
+    const consecutiveOperators = line.match(/\b(AND|OR|NOT|ANDANY|NEAR|WITHIN)\s+(AND|OR|NOT|ANDANY|NEAR|WITHIN)\b/gi);
+    if (consecutiveOperators) {
+      consecutiveOperators.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Consecutive operators "${match}" may cause query failure. Consider adding search terms between operators.`,
+          vscode.DiagnosticSeverity.Warning
+        );
+        diagnostic.code = 'consecutive-operators';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for operator at start of query (except NOT)
+    const startOperatorMatch = line.match(/^\s*(AND|OR|ANDANY|NEAR|WITHIN)\b/i);
+    if (startOperatorMatch && startOperatorMatch[1].toUpperCase() !== 'NOT') {
+      const startIndex = line.indexOf(startOperatorMatch[1]);
+      const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + startOperatorMatch[1].length);
+      const diagnostic = new vscode.Diagnostic(
+        range,
+        `Query cannot start with "${startOperatorMatch[1]}". Start with a search term or use NOT.`,
+        vscode.DiagnosticSeverity.Error
+      );
+      diagnostic.code = 'operator-at-start';
+      diagnostic.source = 'dtSearch';
+      diagnostics.push(diagnostic);
+    }
+
+    // Check for operator at end of query
+    const endOperatorMatch = line.match(/\b(AND|OR|NOT|ANDANY|NEAR|WITHIN)\s*$/i);
+    if (endOperatorMatch) {
+      const startIndex = line.lastIndexOf(endOperatorMatch[1]);
+      const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + endOperatorMatch[1].length);
+      const diagnostic = new vscode.Diagnostic(
+        range,
+        `Query cannot end with "${endOperatorMatch[1]}". Add a search term after the operator.`,
+        vscode.DiagnosticSeverity.Error
+      );
+      diagnostic.code = 'operator-at-end';
+      diagnostic.source = 'dtSearch';
+      diagnostics.push(diagnostic);
+    }
+
+    // Check for mixed AND/OR operators within parentheses
+    const parenGroups = line.match(/\([^)]+\)/g);
+    if (parenGroups) {
+      parenGroups.forEach(group => {
+        const hasAnd = /\bAND\b/i.test(group);
+        const hasOr = /\bOR\b/i.test(group);
+        
+        if (hasAnd && hasOr) {
+          const startIndex = line.indexOf(group);
+          const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + group.length);
+          const diagnostic = new vscode.Diagnostic(
+            range,
+            `Cannot mix AND and OR operators within the same parentheses: "${group}". Use separate parentheses for each operator type or clarify precedence.`,
+            vscode.DiagnosticSeverity.Error
+          );
+          diagnostic.code = 'mixed-operators-in-parens';
+          diagnostic.source = 'dtSearch';
+          diagnostics.push(diagnostic);
+        }
+
+        // Suggest parentheses for complex expressions without them
+        const complexWithoutParens = /\b\w+\s+(AND|OR)\s+\w+\s+(AND|OR)\s+\w+\b/i;
+        if (!group && complexWithoutParens.test(line)) {
+          const match = line.match(complexWithoutParens);
+          if (match) {
+            const startIndex = line.indexOf(match[0]);
+            const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match[0].length);
+            const diagnostic = new vscode.Diagnostic(
+              range,
+              `Consider using parentheses to clarify operator precedence: "${match[0]}". Example: "(term1 OR term2) AND term3"`,
+              vscode.DiagnosticSeverity.Information
+            );
+            diagnostic.code = 'suggest-parentheses';
+            diagnostic.source = 'dtSearch';
+            diagnostics.push(diagnostic);
+          }
+        }
+      });
+    }
+
+    // Check for complex expressions without parentheses (when no parentheses exist on the line)
+    if (!parenGroups) {
+      const complexPattern = /\b\w+\s+(AND|OR)\s+\w+\s+(AND|OR)\s+\w+/gi;
+      let match;
+      while ((match = complexPattern.exec(line)) !== null) {
+        const operators = [match[1].toUpperCase(), match[2].toUpperCase()];
+        if (operators[0] !== operators[1]) { // Different operators
+          const range = new vscode.Range(lineNumber, match.index, lineNumber, match.index + match[0].length);
+          const diagnostic = new vscode.Diagnostic(
+            range,
+            `Mixed operators require parentheses for clarity: "${match[0]}". Example: "(${match[0].split(' ')[0]} ${operators[0]} ${match[0].split(' ')[2]}) ${operators[1]} ${match[0].split(' ')[4]}"`,
+            vscode.DiagnosticSeverity.Warning
+          );
+          diagnostic.code = 'mixed-operators-need-parens';
+          diagnostic.source = 'dtSearch';
+          diagnostics.push(diagnostic);
+        }
+      }
+    }
+
+    // Check for missing search terms around proximity operators
+    const proximityWithoutTerms = line.match(/\b(W\/\d+|PRE\/\d+|NEAR|WITHIN)\s+(W\/\d+|PRE\/\d+|NEAR|WITHIN)\b/gi);
+    if (proximityWithoutTerms) {
+      proximityWithoutTerms.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Proximity operators "${match}" require search terms on both sides.`,
+          vscode.DiagnosticSeverity.Warning
+        );
+        diagnostic.code = 'proximity-without-terms';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for ambiguous proximity patterns that can produce unclear results
+    // Pattern 1: (complex expression) PROXIMITY (complex expression)
+    const ambiguousProximity1 = line.match(/\([^)]*\b(AND|OR)\b[^)]*\)\s+(W\/\d+|PRE\/\d+|NEAR|WITHIN)\s+\([^)]*\b(AND|OR)\b[^)]*\)/gi);
+    if (ambiguousProximity1) {
+      ambiguousProximity1.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Ambiguous proximity pattern "${match}" may produce unclear results. Consider restructuring with simpler proximity expressions or use separate queries.`,
+          vscode.DiagnosticSeverity.Warning
+        );
+        diagnostic.code = 'ambiguous-proximity-complex';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Pattern 2: (proximity expression) PROXIMITY (proximity or complex expression)
+    const ambiguousProximity2 = line.match(/\([^)]*\b(W\/\d+|PRE\/\d+)\b[^)]*\)\s+(W\/\d+|PRE\/\d+|NEAR|WITHIN)\s+\([^)]*\b(AND|OR|W\/\d+|PRE\/\d+)\b[^)]*\)/gi);
+    if (ambiguousProximity2) {
+      ambiguousProximity2.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Nested proximity pattern "${match}" creates ambiguous scope. Consider using simpler proximity expressions or restructure the query.`,
+          vscode.DiagnosticSeverity.Warning
+        );
+        diagnostic.code = 'ambiguous-proximity-nested';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Pattern 3: Multiple proximity operators in sequence without clear grouping
+    const multipleProximity = line.match(/\b\w+\s+(W\/\d+|PRE\/\d+|NEAR|WITHIN)\s+\w+\s+(W\/\d+|PRE\/\d+|NEAR|WITHIN)\s+\w+/gi);
+    if (multipleProximity) {
+      multipleProximity.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Multiple proximity operators "${match}" may create ambiguous results. Consider using parentheses to clarify intended scope.`,
+          vscode.DiagnosticSeverity.Information
+        );
+        diagnostic.code = 'multiple-proximity-operators';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for invalid proximity syntax (w/ without number)
+    const invalidProximity = line.match(/\b(w|pre)\/(?!\d)/gi);
+    if (invalidProximity) {
+      invalidProximity.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Invalid proximity operator "${match}". Use format like "W/5" or "PRE/3" with a number.`,
+          vscode.DiagnosticSeverity.Error
+        );
+        diagnostic.code = 'invalid-proximity';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for empty parentheses
+    const emptyParens = line.match(/\(\s*\)/g);
+    if (emptyParens) {
+      emptyParens.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Empty parentheses "()" are not valid. Add search terms inside parentheses.`,
+          vscode.DiagnosticSeverity.Warning
+        );
+        diagnostic.code = 'empty-parentheses';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for redundant parentheses around single terms
+    const redundantParens = line.match(/\(\s*\w+\s*\)/g);
+    if (redundantParens) {
+      redundantParens.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Parentheses around single term "${match}" are unnecessary. Remove them unless part of a larger expression.`,
+          vscode.DiagnosticSeverity.Information
+        );
+        diagnostic.code = 'redundant-parentheses';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for nested parentheses that might be confusing
+    const nestedParens = line.match(/\([^()]*\([^()]*\)[^()]*\)/g);
+    if (nestedParens) {
+      nestedParens.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Nested parentheses "${match}" may be confusing. Consider simplifying or using separate expressions.`,
+          vscode.DiagnosticSeverity.Information
+        );
+        diagnostic.code = 'nested-parentheses';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for double negation (NOT NOT)
+    const doubleNot = line.match(/\bNOT\s+NOT\b/gi);
+    if (doubleNot) {
+      doubleNot.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Double negation "NOT NOT" may cause unexpected results. Consider simplifying the query.`,
+          vscode.DiagnosticSeverity.Information
+        );
+        diagnostic.code = 'double-negation';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for operator inside quotes (likely unintended)
+    const operatorInQuotes = line.match(/"[^"]*\b(AND|OR|NOT|ANDANY|NEAR|WITHIN)\b[^"]*"/gi);
+    if (operatorInQuotes) {
+      operatorInQuotes.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Operator inside quotes "${match}" will be treated as literal text, not as an operator.`,
+          vscode.DiagnosticSeverity.Information
+        );
+        diagnostic.code = 'operator-in-quotes';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+  }
+
+  diagnosticCollection.set(document.uri, diagnostics);
+}
+
 export function deactivate() {
   // Clean up decorations
   if (operatorDecorationType) {
@@ -967,6 +1274,9 @@ export function deactivate() {
   }
   if (statusBarItem) {
     statusBarItem.dispose();
+  }
+  if (diagnosticCollection) {
+    diagnosticCollection.dispose();
   }
   if (highlightTimeout) {
     clearTimeout(highlightTimeout);

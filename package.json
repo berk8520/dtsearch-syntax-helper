@@ -112,6 +112,11 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically clean up queries when saving .dts files"
+        },
+        "dtsearch.enableSyntaxValidation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time syntax validation with error detection and suggestions"
         }
       }
     }
