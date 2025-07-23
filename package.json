@@ -1,0 +1,138 @@
+{
+  "name": "dtsearchsyntaxhelper",
+  "displayName": "dtSearchSyntaxHelper",
+  "description": "Advanced syntax highlighting and query tools for dtSearch queries with real-time error detection",
+  "version": "0.0.1",
+  "publisher": "your-publisher-name",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/berk8520/dtsearch-syntax-helper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/berk8520/dtsearch-syntax-helper/issues"
+  },
+  "homepage": "https://github.com/berk8520/dtsearch-syntax-helper#readme",
+  "engines": {
+    "vscode": "^1.102.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Linters"
+  ],
+  "keywords": ["dtSearch", "search", "query", "syntax", "highlighting", "boolean", "proximity"],
+  "license": "MIT",
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "dtsearchsyntaxhelper.cleanUpQuery",
+        "title": "DT Search: Clean Up Query"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.toggleHighlighting",
+        "title": "DT Search: Toggle Syntax Highlighting"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.showOperatorHelp",
+        "title": "DT Search: Show Operator Help"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "dtsearchsyntaxhelper.cleanUpQuery",
+          "when": "editorHasSelection",
+          "group": "navigation"
+        },
+        {
+          "command": "dtsearchsyntaxhelper.showOperatorHelp",
+          "when": "resourceExtname == .dts",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "dtsearchsyntaxhelper.toggleHighlighting",
+          "when": "editorLangId == dtsearch"
+        },
+        {
+          "command": "dtsearchsyntaxhelper.showOperatorHelp",
+          "when": "editorLangId == dtsearch"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "dtsearchsyntaxhelper.cleanUpQuery",
+        "key": "ctrl+shift+f",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.showOperatorHelp",
+        "key": "f1",
+        "when": "editorLangId == dtsearch"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "dtsearch",
+        "scopeName": "source.dtsearch",
+        "path": "./syntaxes/dtsearch.tmLanguage.json"
+      }
+    ],
+    "languages": [
+      {
+        "id": "dtsearch",
+        "aliases": ["DTSearch", "dtsearch", "DTS"],
+        "extensions": [".dts", ".DTS"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "title": "dtSearch Syntax Helper",
+      "properties": {
+        "dtsearch.enableSyntaxHighlighting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time syntax highlighting for dtSearch queries"
+        },
+        "dtsearch.highlightNoiseWords": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight noise words that are typically ignored by dtSearch"
+        },
+        "dtsearch.showBalanceErrors": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show red squiggly lines for unbalanced parentheses and quotes"
+        },
+        "dtsearch.autoCleanupOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically clean up queries when saving .dts files"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.102.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "eslint": "^9.25.1",
+    "typescript": "^5.8.3",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
