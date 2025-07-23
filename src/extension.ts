@@ -341,7 +341,45 @@ function provideNoiseWordHover(document: vscode.TextDocument, position: vscode.P
     return undefined;
   }
 
-  // Get the word at the current position
+  // First, try to detect w/n or pre/n patterns by expanding the range
+  const line = document.lineAt(position.line);
+  const lineText = line.text;
+  const charIndex = position.character;
+  
+  // Look for proximity patterns (w/n, pre/n) around the cursor position
+  const proximityRegex = /\b(w|pre)\/\d+\b/gi;
+  let match;
+  while ((match = proximityRegex.exec(lineText)) !== null) {
+    const startPos = match.index;
+    const endPos = match.index + match[0].length;
+    
+    if (charIndex >= startPos && charIndex <= endPos) {
+      const proximityRange = new vscode.Range(
+        new vscode.Position(position.line, startPos),
+        new vscode.Position(position.line, endPos)
+      );
+      
+      const operatorText = match[0];
+      const operatorType = match[1].toUpperCase();
+      const hoverText = new vscode.MarkdownString();
+      
+      if (operatorType === 'W') {
+        hoverText.appendMarkdown(`**dtSearch Proximity Operator:** \`${operatorText}\`\n\n`);
+        hoverText.appendMarkdown(`Finds terms within the specified number of words of each other. `);
+        hoverText.appendMarkdown(`This is highlighted in **blue** because it's a dtSearch proximity operator.\n\n`);
+        hoverText.appendMarkdown(`💡 **Example:** \`apple ${operatorText} orange\` finds "apple" and "orange" within ${match[0].split('/')[1]} words of each other.`);
+      } else if (operatorType === 'PRE') {
+        hoverText.appendMarkdown(`**dtSearch Proximity Operator:** \`${operatorText}\`\n\n`);
+        hoverText.appendMarkdown(`First term must precede the second term by the specified number of words. `);
+        hoverText.appendMarkdown(`This is highlighted in **blue** because it's a dtSearch proximity operator.\n\n`);
+        hoverText.appendMarkdown(`💡 **Example:** \`apple ${operatorText} orange\` finds "apple" followed by "orange" within ${match[0].split('/')[1]} words.`);
+      }
+      
+      return new vscode.Hover(hoverText, proximityRange);
+    }
+  }
+
+  // Get the word at the current position for other operators
   const wordRange = document.getWordRangeAtPosition(position);
   if (!wordRange) {
     return undefined;
@@ -373,12 +411,147 @@ function provideNoiseWordHover(document: vscode.TextDocument, position: vscode.P
     'you', 'your'
   ]);
 
+  // Check for dtSearch operators first
+  const upperWord = word.toUpperCase();
+  const originalText = document.getText(wordRange);
+  
+  // Check for boolean operators
+  if (['AND', 'OR', 'NOT', 'ANDANY'].includes(upperWord)) {
+    const hoverText = new vscode.MarkdownString();
+    hoverText.appendMarkdown(`**dtSearch Boolean Operator:** \`${originalText}\`\n\n`);
+    
+    switch (upperWord) {
+      case 'AND':
+        hoverText.appendMarkdown(`Requires **both** terms to be present in the document. `);
+        hoverText.appendMarkdown(`This is highlighted in **blue** because it's a core dtSearch operator.\n\n`);
+        hoverText.appendMarkdown(`💡 **Example:** \`apple AND orange\` finds documents containing both words.`);
+        break;
+      case 'OR':
+        hoverText.appendMarkdown(`Finds documents containing **either** term. `);
+        hoverText.appendMarkdown(`This is highlighted in **blue** because it's a core dtSearch operator.\n\n`);
+        hoverText.appendMarkdown(`💡 **Example:** \`apple OR orange\` finds documents with apple, orange, or both.`);
+        break;
+      case 'NOT':
+        hoverText.appendMarkdown(`Excludes documents containing the specified term. `);
+        hoverText.appendMarkdown(`This is highlighted in **blue** because it's a core dtSearch operator.\n\n`);
+        hoverText.appendMarkdown(`💡 **Example:** \`apple NOT orange\` finds documents with apple but not orange.`);
+        break;
+      case 'ANDANY':
+        hoverText.appendMarkdown(`Requires at least one of the following terms to be present. `);
+        hoverText.appendMarkdown(`This is highlighted in **blue** because it's an advanced dtSearch operator.\n\n`);
+        hoverText.appendMarkdown(`💡 **Example:** \`apple ANDANY (red blue green)\` finds documents with apple and at least one color.`);
+        break;
+    }
+    
+    return new vscode.Hover(hoverText, wordRange);
+  }
+
+  // Check for proximity operators
+  if (['NEAR', 'WITHIN', 'SENTENCE', 'PARAGRAPH', 'DOCUMENT'].includes(upperWord)) {
+    const hoverText = new vscode.MarkdownString();
+    hoverText.appendMarkdown(`**dtSearch Proximity Operator:** \`${originalText}\`\n\n`);
+    
+    switch (upperWord) {
+      case 'NEAR':
+        hoverText.appendMarkdown(`Finds terms close to each other (default proximity). `);
+        break;
+      case 'WITHIN':
+        hoverText.appendMarkdown(`Finds terms within a specified scope. `);
+        break;
+      case 'SENTENCE':
+        hoverText.appendMarkdown(`Finds terms within the same sentence. `);
+        break;
+      case 'PARAGRAPH':
+        hoverText.appendMarkdown(`Finds terms within the same paragraph. `);
+        break;
+      case 'DOCUMENT':
+        hoverText.appendMarkdown(`Finds terms anywhere within the same document. `);
+        break;
+    }
+    
+    hoverText.appendMarkdown(`This is highlighted in **blue** because it's a dtSearch proximity operator.\n\n`);
+    hoverText.appendMarkdown(`💡 **Example:** \`apple ${upperWord} orange\` finds terms within the specified scope.`);
+    
+    return new vscode.Hover(hoverText, wordRange);
+  }
+
+  // Check for special function operators
+  if (['XFIRSTWORD', 'XLASTWORD', 'CAPS', 'STEM', 'SOUNDEX', 'NUMERIC', 'ALPHANUMERIC'].includes(upperWord)) {
+    const hoverText = new vscode.MarkdownString();
+    hoverText.appendMarkdown(`**dtSearch Special Operator:** \`${originalText}\`\n\n`);
+    
+    switch (upperWord) {
+      case 'XFIRSTWORD':
+        hoverText.appendMarkdown(`Matches terms at the beginning of documents. `);
+        break;
+      case 'XLASTWORD':
+        hoverText.appendMarkdown(`Matches terms at the end of documents. `);
+        break;
+      case 'CAPS':
+        hoverText.appendMarkdown(`Matches only capitalized instances of words. `);
+        break;
+      case 'STEM':
+        hoverText.appendMarkdown(`Matches word variations and stemmed forms. `);
+        break;
+      case 'SOUNDEX':
+        hoverText.appendMarkdown(`Matches words that sound similar (phonetic matching). `);
+        break;
+      case 'NUMERIC':
+        hoverText.appendMarkdown(`Matches numeric values and patterns. `);
+        break;
+      case 'ALPHANUMERIC':
+        hoverText.appendMarkdown(`Matches alphanumeric patterns. `);
+        break;
+    }
+    
+    hoverText.appendMarkdown(`This is highlighted in **blue** because it's an advanced dtSearch operator.\n\n`);
+    hoverText.appendMarkdown(`💡 **Usage:** These operators modify how search terms are matched.`);
+    
+    return new vscode.Hover(hoverText, wordRange);
+  }
+
+  // Check for function calls (like date(), mail(), etc.)
+  const functionMatch = originalText.match(/^(date|mail|creditcard|contains|field)\s*\(/i);
+  if (functionMatch) {
+    const funcName = functionMatch[1].toUpperCase();
+    const hoverText = new vscode.MarkdownString();
+    hoverText.appendMarkdown(`**dtSearch Built-in Function:** \`${funcName}()\`\n\n`);
+    
+    switch (funcName) {
+      case 'DATE':
+        hoverText.appendMarkdown(`Searches for date patterns and ranges. `);
+        hoverText.appendMarkdown(`💡 **Example:** \`date(2023)\` or \`date(jan 1 2023 to dec 31 2023)\``);
+        break;
+      case 'MAIL':
+        hoverText.appendMarkdown(`Searches for email addresses and patterns. `);
+        hoverText.appendMarkdown(`💡 **Example:** \`mail(john@company.com)\` or \`mail(*@company.com)\``);
+        break;
+      case 'CREDITCARD':
+        hoverText.appendMarkdown(`Searches for credit card number patterns. `);
+        hoverText.appendMarkdown(`💡 **Example:** \`creditcard()\` finds common credit card formats.`);
+        break;
+      case 'CONTAINS':
+        hoverText.appendMarkdown(`Searches within specific field content. `);
+        hoverText.appendMarkdown(`💡 **Example:** \`contains(title, "important document")\``);
+        break;
+      case 'FIELD':
+        hoverText.appendMarkdown(`Searches specific metadata fields. `);
+        hoverText.appendMarkdown(`💡 **Example:** \`field(author, "John Smith")\``);
+        break;
+    }
+    
+    hoverText.appendMarkdown(`\n\nThis is highlighted in **blue** because it's a dtSearch built-in function.`);
+    
+    return new vscode.Hover(hoverText, wordRange);
+  }
+
   // Check if the word is a noise word
   if (noiseWords.has(word)) {
     const hoverText = new vscode.MarkdownString();
     hoverText.appendMarkdown(`**dtSearch Noise Word:** \`${word}\`\n\n`);
     hoverText.appendMarkdown(`This word is typically **ignored** by dtSearch engines during searches. `);
     hoverText.appendMarkdown(`Common words like "${word}" are filtered out to improve search performance and relevance.\n\n`);
+    hoverText.appendMarkdown(`This is highlighted in **magenta** to warn you that it may not affect your search results.\n\n`);
     hoverText.appendMarkdown(`💡 **Tip:** Use quotes around phrases if you need to search for noise words: \`"the ${word}"\``);
     
     return new vscode.Hover(hoverText, wordRange);

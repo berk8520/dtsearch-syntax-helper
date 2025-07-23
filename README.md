@@ -19,7 +19,7 @@ A VS Code extension that provides advanced syntax highlighting and formatting to
 - **🔧 Query Cleanup**: Smart formatting with operator normalization and quote standardization
 - **📊 Status Integration**: Live balance checking in status bar
 - **📚 Built-in Help**: Comprehensive dtSearch operator reference
-- **💡 Smart Tooltips**: Hover over noise words to understand why they're highlighted
+- **💡 Smart Tooltips**: Hover over operators and noise words to understand why they're highlighted
 
 ## Quick Start
 1. Install the extension
