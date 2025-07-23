@@ -166,6 +166,10 @@ export function activate(context: vscode.ExtensionContext) {
     if (vscode.window.activeTextEditor && 
         event.document === vscode.window.activeTextEditor.document &&
         isDtSearchFile(vscode.window.activeTextEditor)) {
+      
+      // Handle real-time operator formatting
+      handleRealTimeFormatting(event, vscode.window.activeTextEditor);
+      
       debouncedHighlight(vscode.window.activeTextEditor);
       updateStatusBar();
     }
@@ -811,6 +815,134 @@ function highlightSyntax(editor: vscode.TextEditor) {
   } catch (error) {
     console.error('Error in highlightSyntax:', error);
   }
+}
+
+function handleRealTimeFormatting(event: vscode.TextDocumentChangeEvent, editor: vscode.TextEditor) {
+  // Only process single character insertions (like space, enter, etc.)
+  if (event.contentChanges.length !== 1) {
+    return;
+  }
+
+  const change = event.contentChanges[0];
+  
+  // Only process when user types a space or other word boundary characters
+  if (change.text !== ' ' && change.text !== '\n' && change.text !== '\t' && change.text !== ')' && change.text !== '(' && change.text !== '"' && change.text !== "'") {
+    return;
+  }
+
+  // Get the position where the change occurred (after the character was inserted)
+  const changePosition = change.range.start;
+  const line = editor.document.lineAt(changePosition.line);
+  const lineText = line.text;
+  
+  // Find the word that was just completed (before the space/boundary)
+  // We need to look before the inserted character
+  let wordEnd = changePosition.character;
+  let wordStart = wordEnd - 1;
+  
+  // Move back to find the start of the word
+  while (wordStart > 0 && /[a-zA-Z0-9\/]/.test(lineText[wordStart - 1])) {
+    wordStart--;
+  }
+  
+  if (wordStart < 0 || wordStart >= wordEnd) {
+    return;
+  }
+  
+  const word = lineText.substring(wordStart, wordEnd).toLowerCase();
+  
+  // Define dtSearch operators and connectors that should be auto-formatted
+  const operatorMap: { [key: string]: string } = {
+    // Boolean operators
+    'and': 'AND',
+    'or': 'OR',
+    'not': 'NOT',
+    'andany': 'ANDANY',
+    
+    // Proximity operators
+    'near': 'NEAR',
+    'within': 'WITHIN',
+    'sentence': 'SENTENCE',
+    'paragraph': 'PARAGRAPH',
+    'document': 'DOCUMENT',
+    
+    // Special function operators
+    'xfirstword': 'XFIRSTWORD',
+    'xlastword': 'XLASTWORD',
+    'caps': 'CAPS',
+    'stem': 'STEM',
+    'soundex': 'SOUNDEX',
+    'numeric': 'NUMERIC',
+    'alphanumeric': 'ALPHANUMERIC',
+    
+    // Additional dtSearch operators
+    'contains': 'CONTAINS',
+    'field': 'FIELD',
+    'date': 'DATE',
+    'mail': 'MAIL',
+    'creditcard': 'CREDITCARD',
+    'ssn': 'SSN',
+    'phone': 'PHONE',
+    'url': 'URL',
+    'zipcode': 'ZIPCODE',
+    'currency': 'CURRENCY',
+    'percent': 'PERCENT',
+    'number': 'NUMBER',
+    'time': 'TIME',
+    'datetime': 'DATETIME',
+    'fileext': 'FILEEXT',
+    'filename': 'FILENAME',
+    'filepath': 'FILEPATH',
+    'filesize': 'FILESIZE',
+    'filedate': 'FILEDATE',
+    'filetype': 'FILETYPE',
+    'title': 'TITLE',
+    'subject': 'SUBJECT',
+    'author': 'AUTHOR',
+    'keywords': 'KEYWORDS',
+    'comments': 'COMMENTS',
+    'company': 'COMPANY',
+    'manager': 'MANAGER',
+    'category': 'CATEGORY',
+    'hyperlinks': 'HYPERLINKS',
+    'images': 'IMAGES',
+    'tables': 'TABLES',
+    'headers': 'HEADERS',
+    'footers': 'FOOTERS'
+  };
+  
+  // Check for proximity patterns (w/n, pre/n)
+  const proximityMatch = word.match(/^(w|pre)\/\d+$/i);
+  if (proximityMatch) {
+    const formattedWord = proximityMatch[1].toUpperCase() + word.substring(proximityMatch[1].length);
+    if (word !== formattedWord) {
+      applyWordFormattingWithTrigger(editor, wordStart, wordEnd, formattedWord, change.text);
+    }
+    return;
+  }
+  
+  // Check if the word is an operator that needs formatting
+  const formattedWord = operatorMap[word];
+  if (formattedWord && word !== formattedWord) {
+    applyWordFormattingWithTrigger(editor, wordStart, wordEnd, formattedWord, change.text);
+  }
+}
+
+function applyWordFormattingWithTrigger(editor: vscode.TextEditor, startChar: number, endChar: number, newText: string, triggerChar: string) {
+  const line = editor.selection.active.line;
+  const wordRange = new vscode.Range(
+    new vscode.Position(line, startChar),
+    new vscode.Position(line, endChar)
+  );
+  
+  editor.edit(editBuilder => {
+    // Replace just the word, not including the trigger character
+    editBuilder.replace(wordRange, newText);
+  }).then(() => {
+    // Move cursor to after the formatted word and the trigger character
+    const newPosition = new vscode.Position(line, startChar + newText.length + 1);
+    editor.selection = new vscode.Selection(newPosition, newPosition);
+  });
 }
 
 export function deactivate() {
