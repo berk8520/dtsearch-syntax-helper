@@ -86,3 +86,27 @@ document AND contract or agreement
 // Excessive spaces:
 apple    AND    banana     OR     cherry
 "phrase   with    spaces"     AND    term
+
+// PERFORMANCE OPTIMIZATION TEST CASES (select these and use Ctrl+Shift+X to review warnings):
+
+// Leading wildcards (very slow):
+*apple AND banana
+contract OR *agreement
+(*cat OR *dog) AND house
+
+// Too many OR terms in one group (>10):
+(apple OR banana OR cherry OR grape OR orange OR lemon OR lime OR peach OR plum OR berry OR mango OR kiwi) AND fruit
+
+// Nested wildcards (inefficient):
+app*le*
+con*tra*ct
+man*age*ment AND docu*me*nt
+
+// Very wide proximity ranges (slow):
+apple W/150 banana
+contract W/500 agreement
+document W/1000 important
+
+// Multiple leading wildcards in OR group (extremely slow):
+(*apple OR *banana OR *cherry) AND fruit
+(*contract OR *agreement OR *document) W/10 legal

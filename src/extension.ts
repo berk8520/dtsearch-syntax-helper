@@ -1251,6 +1251,63 @@ function analyzeAndSuggestFixes(query: string): QueryFix[] {
     });
   }
 
+  // PERFORMANCE OPTIMIZATION WARNINGS
+
+  // Warning 1: Leading wildcards (*apple) - very slow
+  const leadingWildcardPattern = /\*\w+/g;
+  if (leadingWildcardPattern.test(query)) {
+    const lineNumber = findLineNumber(leadingWildcardPattern);
+    fixes.push({
+      description: `⚠️ Performance Warning: Leading wildcards (*word) are very slow${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text, // No auto-fix for this - user decision
+      lineNumber
+    });
+  }
+
+  // Warning 2: Too many OR terms (>10 in one group)
+  const orGroupPattern = /\([^()]*(?:\s+OR\s+[^()]*){10,}\)/gi;
+  if (orGroupPattern.test(query)) {
+    const lineNumber = findLineNumber(orGroupPattern);
+    fixes.push({
+      description: `⚠️ Performance Warning: Too many OR terms in one group (>10) - consider splitting${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text, // No auto-fix for this - user decision
+      lineNumber
+    });
+  }
+
+  // Warning 3: Nested wildcards (app*le*) - inefficient
+  const nestedWildcardPattern = /\w+\*\w+\*/g;
+  if (nestedWildcardPattern.test(query)) {
+    const lineNumber = findLineNumber(nestedWildcardPattern);
+    fixes.push({
+      description: `⚠️ Performance Warning: Nested wildcards (word*sub*) are inefficient${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text, // No auto-fix for this - user decision
+      lineNumber
+    });
+  }
+
+  // Warning 4: Very wide proximity ranges (W/100+)
+  const wideProximityPattern = /W\/([1-9]\d{2,}|\d{4,})/gi; // W/100 or higher
+  if (wideProximityPattern.test(query)) {
+    const lineNumber = findLineNumber(wideProximityPattern);
+    fixes.push({
+      description: `⚠️ Performance Warning: Very wide proximity range (W/100+) may be slow${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text.replace(/W\/([1-9]\d{2,}|\d{4,})/gi, 'W/50'), // Suggest W/50 as more reasonable
+      lineNumber
+    });
+  }
+
+  // Warning 5: Multiple leading wildcards in OR group
+  const multipleLeadingWildcardsPattern = /\([^()]*\*\w+[^()]*(?:\s+OR\s+[^()]*\*\w+[^()]*)+\)/gi;
+  if (multipleLeadingWildcardsPattern.test(query)) {
+    const lineNumber = findLineNumber(multipleLeadingWildcardsPattern);
+    fixes.push({
+      description: `⚠️ Performance Warning: Multiple leading wildcards in OR group - extremely slow${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text, // No auto-fix for this - user decision
+      lineNumber
+    });
+  }
+
   return fixes;
 }
 
