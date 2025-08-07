@@ -43,8 +43,8 @@
         "title": "DT Search: Split OR Searches"
       },
       {
-        "command": "dtsearchsyntaxhelper.autoFixQuery",
-        "title": "DT Search: Auto-Fix Query"
+        "command": "dtsearchsyntaxhelper.reviewErrors",
+        "title": "DT Search: Review Errors"
       },
       {
         "command": "dtsearchsyntaxhelper.jumpToLine",
@@ -59,14 +59,14 @@
           "group": "navigation"
         },
         {
-          "command": "dtsearchsyntaxhelper.splitOrSearches",
+          "command": "dtsearchsyntaxhelper.reviewErrors",
           "when": "editorHasSelection",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
-          "command": "dtsearchsyntaxhelper.autoFixQuery",
+          "command": "dtsearchsyntaxhelper.splitOrSearches",
           "when": "editorHasSelection",
-          "group": "navigation"
+          "group": "navigation@3"
         },
         {
           "command": "dtsearchsyntaxhelper.showOperatorHelp",
@@ -97,7 +97,7 @@
         "when": "editorTextFocus && editorHasSelection"
       },
       {
-        "command": "dtsearchsyntaxhelper.autoFixQuery",
+        "command": "dtsearchsyntaxhelper.reviewErrors",
         "key": "ctrl+shift+x",
         "when": "editorTextFocus && editorHasSelection"
       },

@@ -200,8 +200,8 @@ export function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(splitOrSearches);
 
-  // DT Search: Auto-Fix Query command
-  let autoFixQuery = vscode.commands.registerCommand('dtsearchsyntaxhelper.autoFixQuery', async () => {
+  // DT Search: Review Errors command
+  let reviewErrors = vscode.commands.registerCommand('dtsearchsyntaxhelper.reviewErrors', async () => {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
       vscode.window.showErrorMessage('No active editor found.');
@@ -271,6 +271,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.window.showInformationMessage('Query auto-fixed successfully!');
   });
+
+  context.subscriptions.push(reviewErrors);
+
   // Register command for jumping to line (for clickable line numbers)
   let jumpToLine = vscode.commands.registerCommand('dtsearchsyntaxhelper.jumpToLine', (lineNumber: number) => {
     const editor = vscode.window.activeTextEditor;
@@ -391,8 +394,17 @@ function getParenthesesBalance(text: string): number {
 }
 
 function getQuoteBalance(text: string): number {
-  const quotes = (text.match(/"/g) || []).length;
-  return quotes % 2;
+  const lines = text.split('\n');
+  
+  // Check if any line has unbalanced quotes
+  for (const line of lines) {
+    const quotes = (line.match(/"/g) || []).length;
+    if (quotes % 2 !== 0) {
+      return 1; // Return 1 if any line is unbalanced
+    }
+  }
+  
+  return 0; // All lines are balanced
 }
 
 function clearAllDecorations(editor: vscode.TextEditor) {
@@ -903,38 +915,46 @@ function highlightSyntax(editor: vscode.TextEditor) {
     });
   }
 
-  // Find and handle quotes
-  const quotePositions: number[] = [];
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '"') {
-      quotePositions.push(i);
-    }
-  }
-
-  // Color quotes - pairs get normal color, unmatched get red squiggly
-  for (let i = 0; i < quotePositions.length; i++) {
-    const pos = quotePositions[i];
-    const startPos = editor.document.positionAt(pos);
-    const endPos = editor.document.positionAt(pos + 1);
-    
-    // If we have an even number of quotes, all should be matched
-    // If we have an odd number, the last one is unmatched
-    if (quotePositions.length % 2 === 0) {
-      // Even number - all quotes are matched
-      quoteRanges.push(new vscode.Range(startPos, endPos));
-    } else {
-      // Odd number - last quote is unmatched
-      if (i === quotePositions.length - 1) {
-        // This is the unmatched quote - only highlight if error detection is enabled
-        if (showBalanceErrors) {
-          unmatchedQuoteRanges.push(new vscode.Range(startPos, endPos));
-        }
-      } else {
-        // These are matched quotes
-        quoteRanges.push(new vscode.Range(startPos, endPos));
+  // Find and handle quotes (line by line)
+  const lines = text.split('\n');
+  let globalOffset = 0;
+  
+  lines.forEach((line, lineIndex) => {
+    const quotePositions: number[] = [];
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') {
+        quotePositions.push(globalOffset + i);
       }
     }
-  }
+
+    // Color quotes for this line - pairs get normal color, unmatched get red squiggly
+    for (let i = 0; i < quotePositions.length; i++) {
+      const pos = quotePositions[i];
+      const startPos = editor.document.positionAt(pos);
+      const endPos = editor.document.positionAt(pos + 1);
+      
+      // If this line has an even number of quotes, all should be matched
+      // If this line has an odd number, the last one is unmatched
+      if (quotePositions.length % 2 === 0) {
+        // Even number - all quotes in this line are matched
+        quoteRanges.push(new vscode.Range(startPos, endPos));
+      } else {
+        // Odd number - last quote in this line is unmatched
+        if (i === quotePositions.length - 1) {
+          // This is the unmatched quote - only highlight if error detection is enabled
+          if (showBalanceErrors) {
+            unmatchedQuoteRanges.push(new vscode.Range(startPos, endPos));
+          }
+        } else {
+          // These are matched quotes
+          quoteRanges.push(new vscode.Range(startPos, endPos));
+        }
+      }
+    }
+    
+    // Update global offset for next line (include the newline character)
+    globalOffset += line.length + 1;
+  });
 
   // Apply decorations
   editor.setDecorations(operatorDecorationType, operatorRanges);
@@ -1105,6 +1125,17 @@ function analyzeAndSuggestFixes(query: string): QueryFix[] {
     return undefined;
   }
 
+  function findUnbalancedQuoteLines(): number[] {
+    const unbalancedLines: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const quoteCount = (lines[i].match(/"/g) || []).length;
+      if (quoteCount % 2 !== 0) {
+        unbalancedLines.push(i + 1); // 1-based line numbers
+      }
+    }
+    return unbalancedLines;
+  }
+
   // Fix 1: Remove duplicate operators (preserve line structure)
   const duplicateOperatorPattern = /\b(AND|OR|NOT|ANDANY|NEAR|WITHIN)\s+\1\b/gi;
   if (duplicateOperatorPattern.test(query)) {
@@ -1127,13 +1158,57 @@ function analyzeAndSuggestFixes(query: string): QueryFix[] {
     });
   }
 
-  // Fix 3: Fix unbalanced quotes
+  // Fix 3: Fix unbalanced quotes (line by line)
   const quoteBalance = getQuoteBalance(query);
   if (quoteBalance !== 0) {
-    const lineNumber = findLineNumber(/"/);
+    const unbalancedLines = findUnbalancedQuoteLines();
+    const lineNumber = unbalancedLines.length > 0 ? unbalancedLines[0] : undefined;
+    const lineInfo = unbalancedLines.length > 1 ? 
+      ` - Lines ${unbalancedLines.join(', ')}` : 
+      lineNumber ? ` - Line ${lineNumber}` : '';
     fixes.push({
-      description: `Balance quotes (add missing closing quote)${lineNumber ? ` - Line ${lineNumber}` : ''}`,
-      apply: (text: string) => text + '"',
+      description: `Balance quotes (add missing closing quote)${lineInfo}`,
+      apply: (text: string) => {
+        const lines = text.split('\n');
+        const fixedLines = lines.map(line => {
+          const quoteCount = (line.match(/"/g) || []).length;
+          
+          // If this line has an odd number of quotes (unbalanced)
+          if (quoteCount % 2 !== 0) {
+            // Find the last unbalanced quote in this line
+            let lastQuotePos = -1;
+            let lineQuoteCount = 0;
+            
+            for (let i = 0; i < line.length; i++) {
+              if (line[i] === '"') {
+                lineQuoteCount++;
+                if (lineQuoteCount % 2 === 1) {
+                  lastQuotePos = i;
+                }
+              }
+            }
+            
+            if (lastQuotePos !== -1) {
+              // Look for the next operator after the unbalanced quote
+              const textAfterQuote = line.substring(lastQuotePos + 1);
+              const operatorMatch = textAfterQuote.match(/\s+(AND|OR|NOT|W\/\d+|PRE\/\d+|NEAR|WITHIN)\s+/i);
+              
+              if (operatorMatch && operatorMatch.index !== undefined) {
+                // Insert closing quote before the operator
+                const insertPos = lastQuotePos + 1 + operatorMatch.index;
+                return line.slice(0, insertPos) + '"' + line.slice(insertPos);
+              } else {
+                // No operator found, add quote at end of line (trim any trailing whitespace first)
+                return line.trimEnd() + '"';
+              }
+            }
+          }
+          
+          return line;
+        });
+        
+        return fixedLines.join('\n');
+      },
       lineNumber
     });
   }
