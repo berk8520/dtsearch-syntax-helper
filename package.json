@@ -37,12 +37,34 @@
       {
         "command": "dtsearchsyntaxhelper.showOperatorHelp",
         "title": "DT Search: Show Operator Help"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.splitOrSearches",
+        "title": "DT Search: Split OR Searches"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.autoFixQuery",
+        "title": "DT Search: Auto-Fix Query"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.jumpToLine",
+        "title": "DT Search: Jump to Line"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "command": "dtsearchsyntaxhelper.cleanUpQuery",
+          "when": "editorHasSelection",
+          "group": "navigation"
+        },
+        {
+          "command": "dtsearchsyntaxhelper.splitOrSearches",
+          "when": "editorHasSelection",
+          "group": "navigation"
+        },
+        {
+          "command": "dtsearchsyntaxhelper.autoFixQuery",
           "when": "editorHasSelection",
           "group": "navigation"
         },
@@ -67,6 +89,16 @@
       {
         "command": "dtsearchsyntaxhelper.cleanUpQuery",
         "key": "ctrl+shift+f",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.splitOrSearches",
+        "key": "ctrl+shift+s",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.autoFixQuery",
+        "key": "ctrl+shift+x",
         "when": "editorTextFocus && editorHasSelection"
       },
       {

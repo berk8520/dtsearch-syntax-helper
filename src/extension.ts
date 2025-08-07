@@ -158,6 +158,131 @@ export function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(showOperatorHelp);
 
+  // DT Search: Split OR Searches command
+  let splitOrSearches = vscode.commands.registerCommand('dtsearchsyntaxhelper.splitOrSearches', async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showErrorMessage('No active editor found.');
+      return;
+    }
+
+    const selection = editor.selection;
+    let text = editor.document.getText(selection);
+
+    if (!text.trim()) {
+      vscode.window.showWarningMessage('No text selected.');
+      return;
+    }
+
+    const splitQueries = splitOrQuery(text.trim());
+    
+    if (splitQueries.length <= 1) {
+      vscode.window.showInformationMessage('No OR operators found to split, or query is already simple.');
+      return;
+    }
+
+    // Insert the split queries after the current line
+    const currentLine = selection.end.line;
+    const insertPosition = new vscode.Position(currentLine + 1, 0);
+    
+    const splitText = '\n' + splitQueries.join('\n') + '\n';
+
+    await editor.edit(editBuilder => {
+      editBuilder.insert(insertPosition, splitText);
+    });
+
+    // Enable dtSearch mode for this editor and apply syntax highlighting
+    forceDtSearchMode = true;
+    highlightSyntax(editor);
+    updateStatusBar();
+
+    vscode.window.showInformationMessage(`Split into ${splitQueries.length} individual search queries.`);
+  });
+  context.subscriptions.push(splitOrSearches);
+
+  // DT Search: Auto-Fix Query command
+  let autoFixQuery = vscode.commands.registerCommand('dtsearchsyntaxhelper.autoFixQuery', async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showErrorMessage('No active editor found.');
+      return;
+    }
+
+    const selection = editor.selection;
+    let text = editor.document.getText(selection);
+
+    if (!text.trim()) {
+      vscode.window.showWarningMessage('No text selected.');
+      return;
+    }
+
+    const fixes = analyzeAndSuggestFixes(text.trim());
+    
+    if (fixes.length === 0) {
+      vscode.window.showInformationMessage('No common issues found in the selected query.');
+      return;
+    }
+
+    // Show fixes to user and let them choose
+    const fixItems: vscode.QuickPickItem[] = fixes.map((fix, index) => ({
+      label: `${index + 1}. ${fix.description}`,
+      description: fix.lineNumber ? `📍 Line ${fix.lineNumber}` : undefined,
+      detail: fix.lineNumber ? 'Click to go to line, then press Enter to apply fix' : 'Press Enter to apply fix'
+    }));
+
+    const selectedFix = await vscode.window.showQuickPick(
+      [
+        { label: 'Apply All Fixes', description: `${fixes.length} fixes available`, detail: 'Apply all suggested fixes at once' },
+        ...fixItems,
+        { label: 'Cancel', detail: 'Exit without applying any fixes' }
+      ],
+      {
+        placeHolder: 'Select which fix to apply',
+        title: `Found ${fixes.length} potential fix(es)`,
+        matchOnDescription: true,
+        matchOnDetail: true
+      }
+    );
+
+    if (!selectedFix || selectedFix.label === 'Cancel') {
+      return;
+    }
+
+    let fixedText = text;
+    if (selectedFix.label === 'Apply All Fixes') {
+      // Apply all fixes in order - each fix now preserves structure
+      for (const fix of fixes) {
+        fixedText = fix.apply(fixedText);
+      }
+    } else {
+      // Apply selected fix
+      const fixIndex = parseInt(selectedFix.label.split('.')[0]) - 1;
+      fixedText = fixes[fixIndex].apply(fixedText);
+    }
+
+    await editor.edit(editBuilder => {
+      editBuilder.replace(selection, fixedText);
+    });
+
+    // Enable dtSearch mode for this editor and apply syntax highlighting
+    forceDtSearchMode = true;
+    highlightSyntax(editor);
+    updateStatusBar();
+
+    vscode.window.showInformationMessage('Query auto-fixed successfully!');
+  });
+  // Register command for jumping to line (for clickable line numbers)
+  let jumpToLine = vscode.commands.registerCommand('dtsearchsyntaxhelper.jumpToLine', (lineNumber: number) => {
+    const editor = vscode.window.activeTextEditor;
+    if (editor && lineNumber > 0) {
+      const position = new vscode.Position(lineNumber - 1, 0);
+      editor.selection = new vscode.Selection(position, position);
+      editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+    }
+  });
+
+  context.subscriptions.push(jumpToLine);
+
   // Register event listeners for active editor changes
   vscode.window.onDidChangeActiveTextEditor(editor => {
     // Reset force mode when switching editors
@@ -954,6 +1079,273 @@ function applyWordFormattingWithTrigger(editor: vscode.TextEditor, startChar: nu
   });
 }
 
+interface QueryFix {
+  description: string;
+  apply: (text: string) => string;
+  lineNumber?: number;
+  columnStart?: number;
+  columnEnd?: number;
+}
+
+function analyzeAndSuggestFixes(query: string): QueryFix[] {
+  const fixes: QueryFix[] = [];
+  const lines = query.split('\n');
+
+  // Helper function to find line number for a pattern
+  function findLineNumber(pattern: RegExp, matchText?: string): number | undefined {
+    for (let i = 0; i < lines.length; i++) {
+      if (matchText) {
+        if (lines[i].includes(matchText)) {
+          return i + 1; // 1-based line numbers
+        }
+      } else if (pattern.test(lines[i])) {
+        return i + 1; // 1-based line numbers
+      }
+    }
+    return undefined;
+  }
+
+  // Fix 1: Remove duplicate operators (preserve line structure)
+  const duplicateOperatorPattern = /\b(AND|OR|NOT|ANDANY|NEAR|WITHIN)\s+\1\b/gi;
+  if (duplicateOperatorPattern.test(query)) {
+    const lineNumber = findLineNumber(duplicateOperatorPattern);
+    fixes.push({
+      description: `Remove duplicate operators (e.g., "AND AND" → "AND")${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text.replace(/\b(AND|OR|NOT|ANDANY|NEAR|WITHIN)\s+\1\b/gi, '$1'),
+      lineNumber
+    });
+  }
+
+  // Fix 2: Fix unbalanced parentheses
+  const parenBalance = getParenthesesBalance(query);
+  if (parenBalance !== 0) {
+    const lineNumber = findLineNumber(/[()]/);
+    fixes.push({
+      description: `Balance parentheses (${Math.abs(parenBalance)} ${parenBalance > 0 ? 'missing closing' : 'extra closing'} parentheses)${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => fixUnbalancedParentheses(text),
+      lineNumber
+    });
+  }
+
+  // Fix 3: Fix unbalanced quotes
+  const quoteBalance = getQuoteBalance(query);
+  if (quoteBalance !== 0) {
+    const lineNumber = findLineNumber(/"/);
+    fixes.push({
+      description: `Balance quotes (add missing closing quote)${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text + '"',
+      lineNumber
+    });
+  }
+
+  // Fix 4: Remove excessive spaces (but preserve line breaks and structure)
+  if (/[ \t]{2,}/.test(query)) {
+    const lineNumber = findLineNumber(/[ \t]{2,}/);
+    fixes.push({
+      description: `Remove excessive spaces (preserves line breaks)${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => {
+        // Split by lines, clean each line individually, then rejoin
+        return text.split('\n').map(line => {
+          // Replace multiple spaces/tabs with single space, but preserve line content
+          return line.replace(/[ \t]+/g, ' ').replace(/^ /, '').replace(/ $/, '');
+        }).join('\n');
+      },
+      lineNumber
+    });
+  }
+
+  // Fix 5: Fix invalid proximity operators (preserve line structure)
+  const invalidProximityPattern = /\b(w|pre)(\d+)\b/gi;
+  if (invalidProximityPattern.test(query)) {
+    const lineNumber = findLineNumber(invalidProximityPattern);
+    fixes.push({
+      description: `Fix proximity operators (e.g., "w5" → "W/5")${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text.replace(/\b(w|pre)(\d+)\b/gi, (match, op, num) => `${op.toUpperCase()}/${num}`),
+      lineNumber
+    });
+  }
+
+  // Fix 6: Fix case inconsistencies in operators (preserve line structure)
+  const mixedCaseOperators = /\b(and|or|not|andany|near|within)\b/g;
+  if (mixedCaseOperators.test(query)) {
+    const lineNumber = findLineNumber(mixedCaseOperators);
+    fixes.push({
+      description: `Normalize operator case to uppercase${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text.replace(/\b(and|or|not|andany|near|within)\b/gi, match => match.toUpperCase()),
+      lineNumber
+    });
+  }
+
+  return fixes;
+}
+
+function fixUnbalancedParentheses(text: string): string {
+  const balance = getParenthesesBalance(text);
+  
+  if (balance > 0) {
+    // Missing closing parentheses
+    return text + ')'.repeat(balance);
+  } else if (balance < 0) {
+    // Extra closing parentheses - remove from the end
+    let result = text;
+    let toRemove = Math.abs(balance);
+    
+    // Remove excess closing parentheses from the end
+    for (let i = result.length - 1; i >= 0 && toRemove > 0; i--) {
+      if (result[i] === ')') {
+        result = result.slice(0, i) + result.slice(i + 1);
+        toRemove--;
+      }
+    }
+    return result;
+  }
+  
+  return text;
+}
+
+function getCommonMisspellings(): Map<string, string> {
+  const misspellings = new Map<string, string>();
+  
+  // Common dtSearch-related misspellings
+  misspellings.set('appel', 'apple');
+  misspellings.set('banan', 'banana');
+  misspellings.set('bananna', 'banana');
+  misspellings.set('orang', 'orange');
+  misspellings.set('cheery', 'cherry');
+  misspellings.set('chery', 'cherry');
+  misspellings.set('documnt', 'document');
+  misspellings.set('documen', 'document');
+  misspellings.set('contrat', 'contract');
+  misspellings.set('contrct', 'contract');
+  misspellings.set('agrement', 'agreement');
+  misspellings.set('agremeent', 'agreement');
+  misspellings.set('recieve', 'receive');
+  misspellings.set('reciev', 'receive');
+  misspellings.set('adress', 'address');
+  misspellings.set('addres', 'address');
+  misspellings.set('occurence', 'occurrence');
+  misspellings.set('seperate', 'separate');
+  misspellings.set('definately', 'definitely');
+  misspellings.set('goverment', 'government');
+  misspellings.set('managment', 'management');
+  misspellings.set('comittee', 'committee');
+  misspellings.set('commitee', 'committee');
+  misspellings.set('begining', 'beginning');
+  misspellings.set('calender', 'calendar');
+  misspellings.set('sucessful', 'successful');
+  misspellings.set('necesary', 'necessary');
+  misspellings.set('recomend', 'recommend');
+  misspellings.set('responsability', 'responsibility');
+  
+  // Nautical/Maritime terms
+  misspellings.set('yact', 'yacht');
+  misspellings.set('yatch', 'yacht');
+  misspellings.set('captin', 'captain');
+  misspellings.set('captian', 'captain');
+  misspellings.set('shoar', 'shore');
+  misspellings.set('shor', 'shore');
+  misspellings.set('harber', 'harbor');
+  misspellings.set('habor', 'harbor');
+  misspellings.set('ancher', 'anchor');
+  misspellings.set('achor', 'anchor');
+  misspellings.set('navagation', 'navigation');
+  misspellings.set('navegation', 'navigation');
+  misspellings.set('passanger', 'passenger');
+  misspellings.set('passangers', 'passengers');
+  misspellings.set('marinah', 'marina');
+  misspellings.set('marena', 'marina');
+  
+  // Legal/Business terms
+  misspellings.set('liabilty', 'liability');
+  misspellings.set('liabiity', 'liability');
+  misspellings.set('responsibilty', 'responsibility');
+  misspellings.set('responsiblity', 'responsibility');
+  misspellings.set('guarentee', 'guarantee');
+  misspellings.set('garentee', 'guarantee');
+  misspellings.set('maintanence', 'maintenance');
+  misspellings.set('maintainence', 'maintenance');
+  misspellings.set('equipement', 'equipment');
+  misspellings.set('equiptment', 'equipment');
+  misspellings.set('insureance', 'insurance');
+  misspellings.set('insurence', 'insurance');
+  misspellings.set('proceduer', 'procedure');
+  misspellings.set('proceedure', 'procedure');
+  misspellings.set('accomodation', 'accommodation');
+  misspellings.set('acommodation', 'accommodation');
+  
+  // Technology terms
+  misspellings.set('sofware', 'software');
+  misspellings.set('softare', 'software');
+  misspellings.set('hardare', 'hardware');
+  misspellings.set('databse', 'database');
+  misspellings.set('databas', 'database');
+  misspellings.set('netwrok', 'network');
+  misspellings.set('netowrk', 'network');
+  misspellings.set('sever', 'server');
+  misspellings.set('servr', 'server');
+  misspellings.set('compny', 'company');
+  misspellings.set('companey', 'company');
+  
+  return misspellings;
+}
+
+function splitOrQuery(query: string): string[] {
+  // Clean up the query first
+  query = query.trim();
+  
+  // Find OR groups in parentheses like (term1 OR term2 OR term3)
+  const orGroupRegex = /\(([^)]*\bOR\b[^)]*)\)/gi;
+  const orGroups: Array<{match: string, terms: string[], start: number, end: number}> = [];
+  
+  let match;
+  while ((match = orGroupRegex.exec(query)) !== null) {
+    const groupContent = match[1];
+    // Split by OR and clean up terms
+    const terms = groupContent.split(/\s+OR\s+/i).map(term => term.trim()).filter(term => term.length > 0);
+    
+    if (terms.length > 1) {
+      orGroups.push({
+        match: match[0],
+        terms: terms,
+        start: match.index,
+        end: match.index + match[0].length
+      });
+    }
+  }
+  
+  // If no OR groups found, return the original query
+  if (orGroups.length === 0) {
+    return [query];
+  }
+  
+  // Generate all combinations
+  let results: string[] = [query];
+  
+  // Process each OR group from right to left to maintain correct indices
+  for (let i = orGroups.length - 1; i >= 0; i--) {
+    const group = orGroups[i];
+    const newResults: string[] = [];
+    
+    for (const currentQuery of results) {
+      for (const term of group.terms) {
+        // Replace the OR group with the individual term
+        const newQuery = currentQuery.substring(0, group.start) + 
+                        term + 
+                        currentQuery.substring(group.end);
+        newResults.push(newQuery);
+      }
+    }
+    
+    results = newResults;
+  }
+  
+  // Clean up the results
+  return results.map(result => {
+    // Remove extra spaces
+    return result.replace(/\s+/g, ' ').trim();
+  }).filter(result => result.length > 0);
+}
+
 function validateSyntax(document: vscode.TextDocument) {
   // Check if syntax validation is enabled
   const config = vscode.workspace.getConfiguration('dtsearch');
@@ -1232,19 +1624,23 @@ function validateSyntax(document: vscode.TextDocument) {
     }
 
     // Check for operator inside quotes (likely unintended)
-    const operatorInQuotes = line.match(/"[^"]*\b(AND|OR|NOT|ANDANY|NEAR|WITHIN)\b[^"]*"/gi);
-    if (operatorInQuotes) {
-      operatorInQuotes.forEach(match => {
-        const startIndex = line.indexOf(match);
-        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
-        const diagnostic = new vscode.Diagnostic(
-          range,
-          `Operator inside quotes "${match}" will be treated as literal text, not as an operator.`,
-          vscode.DiagnosticSeverity.Information
-        );
-        diagnostic.code = 'operator-in-quotes';
-        diagnostic.source = 'dtSearch';
-        diagnostics.push(diagnostic);
+    // Find all quoted strings first, then check if they contain operators
+    const quotedStrings = line.match(/"[^"]*"/g);
+    if (quotedStrings) {
+      quotedStrings.forEach(quotedString => {
+        const operatorInQuote = quotedString.match(/\b(AND|OR|NOT|ANDANY|NEAR|WITHIN)\b/gi);
+        if (operatorInQuote) {
+          const startIndex = line.indexOf(quotedString);
+          const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + quotedString.length);
+          const diagnostic = new vscode.Diagnostic(
+            range,
+            `Operator inside quotes "${quotedString}" will be treated as literal text, not as an operator.`,
+            vscode.DiagnosticSeverity.Information
+          );
+          diagnostic.code = 'operator-in-quotes';
+          diagnostic.source = 'dtSearch';
+          diagnostics.push(diagnostic);
+        }
       });
     }
   }

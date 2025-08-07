@@ -29,3 +29,60 @@ document with a keyword
 // Test real-time formatting:
 apple w5 banana
 document w10 keyword
+
+// NEW: OR splitting examples (select these and use Ctrl+Shift+S to split):
+(dog OR cat OR bird) W/5 (house OR yard OR field)
+(red OR blue OR green) AND (car OR truck)
+(apple OR orange) W/3 (juice OR smoothie OR drink)
+(monday OR tuesday OR wednesday) PRE/2 (meeting OR call)
+
+// QUOTE VALIDATION TESTS:
+// This should NOT trigger warning (operators between quoted pairs):
+typhoon AND "cebu city" AND resort AND (damage OR landscape OR claim OR audit OR standard OR "nature works" OR tami OR stevenson)
+
+// This SHOULD trigger warning (operators inside quotes):
+"apple AND orange" OR "cat AND dog"
+"search term with OR operator inside"
+
+// This should NOT trigger warning (operators outside quotes):
+"apple" AND "orange" OR "banana"
+
+// AUTO-FIX TEST CASES (select these and use Ctrl+Shift+X to auto-fix):
+
+// Duplicate operators:
+apple AND AND banana
+cat OR OR dog OR OR bird
+document AND AND AND contract
+
+// Unbalanced parentheses:
+(apple AND banana
+cat OR (dog AND bird
+((nested parens)
+extra closing)))
+
+// Unbalanced quotes:
+"apple AND banana
+"quoted phrase without closing
+
+// Common misspellings:
+appel AND banan W/5 documnt
+contrat OR agrement AND adress
+goverment AND managment W/3 comittee
+
+// Nautical/Maritime misspellings:
+"yact charter" W/5 (boat OR captin OR shoar)
+harber AND marinah OR ancher
+navagation AND passanger W/10 equipement
+
+// Invalid proximity operators:
+apple w5 banana
+document pre10 contract
+search w20 term
+
+// Mixed case operators:
+apple and banana or cherry
+document AND contract or agreement
+
+// Excessive spaces:
+apple    AND    banana     OR     cherry
+"phrase   with    spaces"     AND    term
