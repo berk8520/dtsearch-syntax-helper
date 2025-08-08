@@ -89,13 +89,41 @@ document AND contract or agreement
 (contract NEAR agreement W/10 document)
 (apple w/10 banana w/5 cherry w/3 grape)
 
-// Cross-group nested proximity (SHOULD SHOW ERROR):
-(dog OR cat OR bird) W/5 (yard OR garden OR park W/10 man)
-(contract OR agreement) W/15 (legal OR binding PRE/5 document)
-(term1 PRE/3 term2) W/10 (result OR outcome W/5 final)
+// NEW: Enhanced operator precedence and mixing validation test cases:
+
+// SHOULD TRIGGER ERRORS:
+
+// Mixed AND/OR without clear precedence in parentheses:
+(dog OR cat AND man) 
+(apple AND banana OR cherry AND grape)
+(term1 OR term2 AND term3 OR term4 AND term5)
+
+// Boolean operator directly followed by proximity operator:
+dog AND W/5 cat
+apple OR PRE/3 banana  
+term1 AND NEAR term2
+
+// Proximity operator directly followed by boolean operator:
+dog W/5 AND cat
+apple PRE/3 OR banana
+term1 NEAR AND term2
+
+// NOT followed by proximity operator:
+apple NOT W/5 banana
+document NOT PRE/10 important
+
+// Complex ambiguous query (should trigger multiple errors):
+(dog OR cat AND man) AND W/5 bird NOT "dead animal"
+(contract OR agreement AND legal) W/10 AND document
+
+// SHOULD BE OK (clearer structure):
+((dog OR cat) AND man)
+(dog W/5 cat) AND bird  
+apple AND (banana W/5 cherry)
+(apple OR banana) AND (cherry OR grape)
 
 // User's specific test case:
-(dog OR cat OR bird) W/5 (yard OR garden OR park W/10 man)
+(dog OR cat AND man) AND W/5 bird NOT "dead animal"
 
 // Mixed boolean and proximity operators (ambiguous precedence):
 (dog OR cat OR bird) AND (adoption OR rescue W/10 shelter)

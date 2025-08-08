@@ -1446,6 +1446,39 @@ function analyzeAndSuggestFixes(query: string): QueryFix[] {
     });
   }
 
+  // Fix 8: Detect mixed AND/OR operators without clear precedence
+  const mixedAndOrPattern = /\([^()]*\bOR\b[^()]*\bAND\b[^()]*\)|(\([^()]*\bAND\b[^()]*\bOR\b[^()]*\))/gi;
+  if (mixedAndOrPattern.test(query)) {
+    const lineNumber = findLineNumber(mixedAndOrPattern);
+    fixes.push({
+      description: `❌ Precedence Error: Mixed AND/OR operators create ambiguous precedence. Use nested parentheses: ((term1 OR term2) AND term3)${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text, // No auto-fix - user needs to restructure manually
+      lineNumber
+    });
+  }
+
+  // Fix 9: Detect boolean operator directly followed by proximity operator
+  const booleanProximityMixPattern = /\b(AND|OR)\s+(W\/\d+|PRE\/\d+|NEAR|WITHIN)\b/gi;
+  if (booleanProximityMixPattern.test(query)) {
+    const lineNumber = findLineNumber(booleanProximityMixPattern);
+    fixes.push({
+      description: `❌ Operator Mix Error: Boolean and proximity operators mixed ambiguously. Restructure: "term1 AND (term2 W/5 term3)"${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text, // No auto-fix - user needs to restructure manually
+      lineNumber
+    });
+  }
+
+  // Fix 10: Detect proximity operator directly followed by boolean operator
+  const proximityBooleanMixPattern = /\b(W\/\d+|PRE\/\d+|NEAR|WITHIN)\s+(AND|OR)\b/gi;
+  if (proximityBooleanMixPattern.test(query)) {
+    const lineNumber = findLineNumber(proximityBooleanMixPattern);
+    fixes.push({
+      description: `❌ Operator Mix Error: Proximity and boolean operators mixed ambiguously. Restructure: "(term1 W/5 term2) AND term3"${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text, // No auto-fix - user needs to restructure manually
+      lineNumber
+    });
+  }
+
   // PERFORMANCE OPTIMIZATION WARNINGS
 
   // Warning 1: Leading wildcards (*apple) - very slow
@@ -2002,6 +2035,74 @@ function validateSyntax(document: vscode.TextDocument) {
           diagnostic.source = 'dtSearch';
           diagnostics.push(diagnostic);
         }
+      });
+    }
+
+    // Check for mixed AND/OR operators without clear precedence in parentheses
+    const mixedOperatorsInParens = line.match(/\([^()]*\bOR\b[^()]*\bAND\b[^()]*\)|(\([^()]*\bAND\b[^()]*\bOR\b[^()]*\))/gi);
+    if (mixedOperatorsInParens) {
+      mixedOperatorsInParens.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Mixed AND/OR operators in "${match}" create ambiguous precedence. Use nested parentheses to clarify: ((term1 OR term2) AND term3)`,
+          vscode.DiagnosticSeverity.Warning
+        );
+        diagnostic.code = 'mixed-operators-ambiguous-precedence';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for boolean operator directly followed by proximity operator (ambiguous)
+    const booleanProximityMix = line.match(/\b(AND|OR)\s+(W\/\d+|PRE\/\d+|NEAR|WITHIN)\b/gi);
+    if (booleanProximityMix) {
+      booleanProximityMix.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `"${match}" mixes boolean and proximity operators ambiguously. Consider restructuring: "term1 AND (term2 W/5 term3)" or separate the operations.`,
+          vscode.DiagnosticSeverity.Error
+        );
+        diagnostic.code = 'boolean-proximity-mix';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for proximity operator directly followed by boolean operator (also ambiguous)
+    const proximityBooleanMix = line.match(/\b(W\/\d+|PRE\/\d+|NEAR|WITHIN)\s+(AND|OR)\b/gi);
+    if (proximityBooleanMix) {
+      proximityBooleanMix.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `"${match}" mixes proximity and boolean operators ambiguously. Consider restructuring: "(term1 W/5 term2) AND term3" or clarify the scope.`,
+          vscode.DiagnosticSeverity.Error
+        );
+        diagnostic.code = 'proximity-boolean-mix';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
+    // Check for NOT followed by proximity operator (potentially problematic)
+    const notProximityMix = line.match(/\bNOT\s+(W\/\d+|PRE\/\d+|NEAR|WITHIN)\b/gi);
+    if (notProximityMix) {
+      notProximityMix.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `"${match}" combines NOT with proximity operator. This may not work as expected. Consider restructuring: "term1 NOT (term2 W/5 term3)".`,
+          vscode.DiagnosticSeverity.Warning
+        );
+        diagnostic.code = 'not-proximity-mix';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
       });
     }
   }
