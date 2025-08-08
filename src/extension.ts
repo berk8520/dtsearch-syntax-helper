@@ -369,6 +369,31 @@ export function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(sendLineToTree);
 
+  const showOperatorFlow = vscode.commands.registerCommand('dtsearchsyntaxhelper.showOperatorFlow', () => {
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      const selection = editor.selection;
+      let queryText: string;
+      
+      if (selection.isEmpty) {
+        // No selection, use current line
+        const currentLine = editor.document.lineAt(selection.active.line);
+        queryText = currentLine.text.trim();
+      } else {
+        // Use selected text
+        queryText = editor.document.getText(selection).trim();
+      }
+      
+      // Filter out comment lines and empty lines
+      if (queryText && !queryText.startsWith('//') && queryText.length > 0) {
+        showOperatorFlowDiagram(queryText);
+      } else {
+        vscode.window.showInformationMessage('Please select a valid query line (not a comment or empty line)');
+      }
+    }
+  });
+  context.subscriptions.push(showOperatorFlow);
+
   // Register event listeners for active editor changes
   vscode.window.onDidChangeActiveTextEditor(editor => {
     // Reset force mode when switching editors
@@ -1971,6 +1996,347 @@ export function deactivate() {
   });
 }
 
+// Operator Flow Diagram Function
+async function showOperatorFlowDiagram(queryText: string) {
+  const flowSteps = analyzeQueryFlow(queryText);
+  const flowDiagram = generateFlowDiagram(flowSteps);
+  
+  // Create a new untitled document to show the flow diagram
+  const document = await vscode.workspace.openTextDocument({
+    content: flowDiagram,
+    language: 'markdown'
+  });
+  
+  await vscode.window.showTextDocument(document, {
+    viewColumn: vscode.ViewColumn.Beside,
+    preview: false
+  });
+}
+
+function analyzeQueryFlow(query: string): FlowStep[] {
+  const steps: FlowStep[] = [];
+  const tokens = tokenizeForFlow(query);
+  
+  // Add initial step
+  steps.push({
+    step: 1,
+    operation: 'Parse Query',
+    input: query,
+    output: 'Tokenized components',
+    description: 'Break down query into operators, terms, and groups',
+    type: 'parse'
+  });
+  
+  // Analyze operator precedence and execution order
+  let stepCounter = 2;
+  const precedenceGroups = groupByPrecedence(tokens);
+  
+  for (const group of precedenceGroups) {
+    const step = analyzeOperatorGroup(group, stepCounter++);
+    steps.push(step);
+  }
+  
+  // Add final step
+  steps.push({
+    step: stepCounter,
+    operation: 'Return Results',
+    input: 'Combined result sets',
+    output: 'Final document matches',
+    description: 'Present final search results to user',
+    type: 'result'
+  });
+  
+  return steps;
+}
+
+function tokenizeForFlow(query: string): FlowToken[] {
+  const tokens: FlowToken[] = [];
+  let i = 0;
+  
+  while (i < query.length) {
+    // Skip whitespace
+    while (i < query.length && /\s/.test(query[i])) {
+      i++;
+    }
+    
+    if (i >= query.length) {
+      break;
+    }
+    
+    let value = '';
+    let type: 'term' | 'operator' | 'group_start' | 'group_end' | 'phrase' = 'term';
+    
+    // Handle parentheses
+    if (query[i] === '(') {
+      value = '(';
+      type = 'group_start';
+      i++;
+    } else if (query[i] === ')') {
+      value = ')';
+      type = 'group_end';
+      i++;
+    }
+    // Handle quoted phrases
+    else if (query[i] === '"') {
+      let j = i + 1;
+      value = '"';
+      while (j < query.length && query[j] !== '"') {
+        value += query[j];
+        j++;
+      }
+      if (j < query.length) {
+        value += '"';
+        j++;
+      }
+      type = 'phrase';
+      i = j;
+    }
+    // Handle operators and terms
+    else {
+      let j = i;
+      while (j < query.length && /[a-zA-Z0-9*\/]/.test(query[j])) {
+        j++;
+      }
+      value = query.substring(i, j);
+      
+      const upperValue = value.toUpperCase();
+      if (/^(AND|OR|NOT|NEAR|WITHIN|W\/\d+|PRE\/\d+)$/.test(upperValue)) {
+        type = 'operator';
+      }
+      
+      i = j;
+    }
+    
+    if (value) {
+      tokens.push({ value, type, precedence: getOperatorPrecedence(value) });
+    }
+  }
+  
+  return tokens;
+}
+
+function getOperatorPrecedence(value: string): number {
+  const upperValue = value.toUpperCase();
+  
+  // Higher numbers = higher precedence (executed first)
+  if (upperValue === 'NOT') {
+    return 4;
+  }
+  if (/^(W\/\d+|PRE\/\d+|NEAR|WITHIN)$/.test(upperValue)) {
+    return 3;
+  }
+  if (upperValue === 'AND') {
+    return 2;
+  }
+  if (upperValue === 'OR') {
+    return 1;
+  }
+  
+  return 0; // Terms, phrases, groups
+}
+
+function groupByPrecedence(tokens: FlowToken[]): FlowToken[][] {
+  const groups: FlowToken[][] = [];
+  let currentGroup: FlowToken[] = [];
+  let currentPrecedence = -1;
+  
+  for (const token of tokens) {
+    if (token.type === 'operator' && token.precedence !== currentPrecedence) {
+      if (currentGroup.length > 0) {
+        groups.push([...currentGroup]);
+      }
+      currentGroup = [token];
+      currentPrecedence = token.precedence;
+    } else {
+      currentGroup.push(token);
+    }
+  }
+  
+  if (currentGroup.length > 0) {
+    groups.push(currentGroup);
+  }
+  
+  // Sort by precedence (highest first)
+  groups.sort((a, b) => {
+    const aPrecedence = Math.max(...a.filter(t => t.type === 'operator').map(t => t.precedence));
+    const bPrecedence = Math.max(...b.filter(t => t.type === 'operator').map(t => t.precedence));
+    return bPrecedence - aPrecedence;
+  });
+  
+  return groups;
+}
+
+function analyzeOperatorGroup(group: FlowToken[], stepNumber: number): FlowStep {
+  const operators = group.filter(token => token.type === 'operator');
+  const mainOperator = operators[0];
+  
+  if (!mainOperator) {
+    return {
+      step: stepNumber,
+      operation: 'Process Terms',
+      input: group.map(t => t.value).join(' '),
+      output: 'Document matches',
+      description: 'Find documents containing the specified terms',
+      type: 'search'
+    };
+  }
+  
+  const operatorType = mainOperator.value.toUpperCase();
+  
+  switch (operatorType) {
+    case 'NOT':
+      return {
+        step: stepNumber,
+        operation: 'NOT Operation',
+        input: group.map(t => t.value).join(' '),
+        output: 'Excluded documents',
+        description: 'Remove documents matching the NOT term from results',
+        type: 'boolean',
+        performance: 'Moderate - Exclusion operation'
+      };
+      
+    case 'AND':
+      return {
+        step: stepNumber,
+        operation: 'AND Operation',
+        input: group.map(t => t.value).join(' '),
+        output: 'Intersection of results',
+        description: 'Find documents containing ALL specified terms',
+        type: 'boolean',
+        performance: 'Fast - Intersection operation'
+      };
+      
+    case 'OR':
+      return {
+        step: stepNumber,
+        operation: 'OR Operation',
+        input: group.map(t => t.value).join(' '),
+        output: 'Union of results',
+        description: 'Find documents containing ANY of the specified terms',
+        type: 'boolean',
+        performance: 'Fast - Union operation'
+      };
+      
+    default:
+      if (/^W\/\d+$/.test(operatorType)) {
+        const distance = operatorType.substring(2);
+        return {
+          step: stepNumber,
+          operation: `Proximity Search (W/${distance})`,
+          input: group.map(t => t.value).join(' '),
+          output: 'Nearby term matches',
+          description: `Find documents where terms appear within ${distance} words of each other`,
+          type: 'proximity',
+          performance: `Moderate - Proximity scanning within ${distance} words`
+        };
+      } else if (/^PRE\/\d+$/.test(operatorType)) {
+        const distance = operatorType.substring(4);
+        return {
+          step: stepNumber,
+          operation: `Precedes Search (PRE/${distance})`,
+          input: group.map(t => t.value).join(' '),
+          output: 'Ordered term matches',
+          description: `Find documents where first term precedes second term within ${distance} words`,
+          type: 'proximity',
+          performance: `Moderate - Ordered proximity scanning within ${distance} words`
+        };
+      }
+      
+      return {
+        step: stepNumber,
+        operation: 'Unknown Operation',
+        input: group.map(t => t.value).join(' '),
+        output: 'Results',
+        description: 'Process unknown operator',
+        type: 'other'
+      };
+  }
+}
+
+function generateFlowDiagram(steps: FlowStep[]): string {
+  let diagram = '# dtSearch Query Execution Flow Diagram\n\n';
+  diagram += `Generated on: ${new Date().toLocaleString()}\n\n`;
+  diagram += '## Execution Steps\n\n';
+  
+  // Add execution order explanation
+  diagram += '### Operator Precedence (Execution Order)\n';
+  diagram += '1. **NOT** (Highest precedence)\n';
+  diagram += '2. **Proximity Operators** (W/, PRE/, NEAR)\n';
+  diagram += '3. **AND**\n';
+  diagram += '4. **OR** (Lowest precedence)\n\n';
+  
+  // Create flow diagram
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const icon = getFlowIcon(step.type);
+    
+    diagram += `### ${icon} Step ${step.step}: ${step.operation}\n\n`;
+    diagram += `**Input:** \`${step.input}\`\n\n`;
+    diagram += `**Output:** ${step.output}\n\n`;
+    diagram += `**Description:** ${step.description}\n\n`;
+    
+    if (step.performance) {
+      diagram += `**Performance:** ${step.performance}\n\n`;
+    }
+    
+    // Add arrow to next step (except for last step)
+    if (i < steps.length - 1) {
+      diagram += '```\n';
+      diagram += '    ↓\n';
+      diagram += '```\n\n';
+    }
+  }
+  
+  // Add performance summary
+  diagram += '\n## Performance Analysis\n\n';
+  const performanceSteps = steps.filter(s => s.performance);
+  if (performanceSteps.length > 0) {
+    for (const step of performanceSteps) {
+      diagram += `- **${step.operation}:** ${step.performance}\n`;
+    }
+  } else {
+    diagram += 'No specific performance considerations detected.\n';
+  }
+  
+  // Add tips
+  diagram += '\n## Optimization Tips\n\n';
+  diagram += '- Use **AND** operations when possible (faster than OR with many terms)\n';
+  diagram += '- Limit **proximity ranges** (W/5 is faster than W/50)\n';
+  diagram += '- Place **most selective terms** first in AND operations\n';
+  diagram += '- Use **NOT** operators sparingly\n';
+  diagram += '- Consider **phrase searches** ("exact phrase") for better precision\n';
+  
+  return diagram;
+}
+
+function getFlowIcon(type: string): string {
+  switch (type) {
+    case 'parse': return '🔍';
+    case 'boolean': return '🔗';
+    case 'proximity': return '↔️';
+    case 'search': return '📝';
+    case 'result': return '✅';
+    default: return '⚙️';
+  }
+}
+
+// Interface definitions for flow analysis
+interface FlowStep {
+  step: number;
+  operation: string;
+  input: string;
+  output: string;
+  description: string;
+  type: 'parse' | 'boolean' | 'proximity' | 'search' | 'result' | 'other';
+  performance?: string;
+}
+
+interface FlowToken {
+  value: string;
+  type: 'term' | 'operator' | 'group_start' | 'group_end' | 'phrase';
+  precedence: number;
+}
+
 // Query Tree Provider Classes
 interface QueryNode {
   type: 'root' | 'group' | 'operator' | 'term' | 'phrase' | 'error' | 'warning';
@@ -2004,43 +2370,36 @@ class QueryTreeProvider implements vscode.TreeDataProvider<QueryNode> {
     switch (element.type) {
       case 'root':
         treeItem.iconPath = new vscode.ThemeIcon('symbol-structure', new vscode.ThemeColor('symbolIcon.structureForeground'));
-        treeItem.label = `🌳 ${element.label}`;
         break;
       case 'group':
         treeItem.iconPath = new vscode.ThemeIcon('bracket', new vscode.ThemeColor('symbolIcon.namespaceForeground'));
-        treeItem.label = `📦 ${element.label}`;
         break;
       case 'operator':
         // Color-code different operators
         const operatorColors = this.getOperatorIconAndColor(element.label);
         treeItem.iconPath = new vscode.ThemeIcon(operatorColors.icon, operatorColors.color);
-        treeItem.label = this.colorizeOperatorLabel(element.label);
         treeItem.contextValue = 'operator';
         break;
       case 'term':
         // Check if it's a wildcard term and style accordingly
         if (element.label.includes('*')) {
           treeItem.iconPath = new vscode.ThemeIcon('search', new vscode.ThemeColor('symbolIcon.keywordForeground'));
-          treeItem.label = `🔍 ${element.label}`;
-          if (element.label.startsWith('*')) {
-            treeItem.label = `⚡🔍 ${element.label}`; // Leading wildcard gets lightning bolt for performance warning
+          if (element.label.includes('*') && element.label.indexOf('*') < element.label.length - 1) {
+            // Leading wildcard gets lightning bolt for performance warning in icon
+            treeItem.iconPath = new vscode.ThemeIcon('zap', new vscode.ThemeColor('warningForeground'));
           }
         } else {
           treeItem.iconPath = new vscode.ThemeIcon('symbol-string', new vscode.ThemeColor('symbolIcon.stringForeground'));
-          treeItem.label = `📝 ${element.label}`;
         }
         break;
       case 'phrase':
         treeItem.iconPath = new vscode.ThemeIcon('quote', new vscode.ThemeColor('symbolIcon.stringForeground'));
-        treeItem.label = `💬 ${element.label}`;
         break;
       case 'error':
         treeItem.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'));
-        treeItem.label = `❌ ${element.label}`;
         break;
       case 'warning':
         treeItem.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('warningForeground'));
-        treeItem.label = `⚠️ ${element.label}`;
         break;
     }
 
@@ -2223,7 +2582,7 @@ class QueryTreeProvider implements vscode.TreeDataProvider<QueryNode> {
     return tokens;
   }
 
-  private buildQueryTree(tokens: Array<{type: string, value: string, start: number, end: number}>): QueryNode[] {
+  private buildQueryTree(tokens: Array<{type: string, value: string, start: number, end: number}>, depth: number = 0): QueryNode[] {
     const nodes: QueryNode[] = [];
     let i = 0;
 
@@ -2251,44 +2610,88 @@ class QueryTreeProvider implements vscode.TreeDataProvider<QueryNode> {
 
         const groupNode: QueryNode = {
           type: 'group',
-          label: `Group (${groupTokens.length} items)`,
-          children: this.buildQueryTree(groupTokens),
+          label: `📦 Group (${groupTokens.length} items)`,
+          children: this.buildQueryTree(groupTokens, depth + 1),
           position: { start: token.start, end: j > i ? tokens[j-1].end : token.end }
         };
 
         nodes.push(groupNode);
         i = j;
       } else if (token.type === 'operator') {
-        nodes.push({
+        // Create an operator node with its operands as children
+        const operatorNode: QueryNode = {
           type: 'operator',
-          label: token.value,
+          label: this.colorizeOperatorLabel(token.value),
+          children: [],
           position: { start: token.start, end: token.end },
           description: this.getOperatorDescription(token.value)
-        });
-        i++;
-      } else if (token.type === 'phrase') {
-        nodes.push({
-          type: 'phrase',
-          label: token.value,
-          position: { start: token.start, end: token.end },
-          description: 'Exact phrase search'
-        });
-        i++;
-      } else if (token.type === 'wildcard') {
-        nodes.push({
-          type: 'warning',
-          label: token.value,
-          position: { start: token.start, end: token.end },
-          description: 'Wildcard search (may impact performance)'
-        });
-        i++;
+        };
+
+        // Look ahead to group terms with this operator
+        const operands: QueryNode[] = [];
+        let k = i + 1;
+        
+        // Collect operands (terms, phrases, wildcards) that follow this operator
+        while (k < tokens.length && tokens[k].type !== 'operator' && tokens[k].type !== 'paren') {
+          const operandToken = tokens[k];
+          
+          if (operandToken.type === 'phrase') {
+            operands.push({
+              type: 'phrase',
+              label: `💬 ${operandToken.value}`,
+              position: { start: operandToken.start, end: operandToken.end },
+              description: 'Exact phrase search'
+            });
+          } else if (operandToken.type === 'wildcard') {
+            operands.push({
+              type: 'warning',
+              label: `🔍 ${operandToken.value}`,
+              position: { start: operandToken.start, end: operandToken.end },
+              description: 'Wildcard search (may impact performance)'
+            });
+          } else {
+            operands.push({
+              type: 'term',
+              label: `📝 ${operandToken.value}`,
+              position: { start: operandToken.start, end: operandToken.end },
+              description: 'Search term'
+            });
+          }
+          k++;
+        }
+
+        if (operands.length > 0) {
+          operatorNode.children = operands;
+          i = k; // Skip the processed operands
+        } else {
+          i++;
+        }
+
+        nodes.push(operatorNode);
       } else {
-        nodes.push({
-          type: 'term',
-          label: token.value,
-          position: { start: token.start, end: token.end },
-          description: 'Search term'
-        });
+        // Handle standalone terms, phrases, wildcards
+        if (token.type === 'phrase') {
+          nodes.push({
+            type: 'phrase',
+            label: `💬 ${token.value}`,
+            position: { start: token.start, end: token.end },
+            description: 'Exact phrase search'
+          });
+        } else if (token.type === 'wildcard') {
+          nodes.push({
+            type: 'warning',
+            label: `🔍 ${token.value}`,
+            position: { start: token.start, end: token.end },
+            description: 'Wildcard search (may impact performance)'
+          });
+        } else {
+          nodes.push({
+            type: 'term',
+            label: `📝 ${token.value}`,
+            position: { start: token.start, end: token.end },
+            description: 'Search term'
+          });
+        }
         i++;
       }
     }
@@ -2421,6 +2824,25 @@ class QueryTreeProvider implements vscode.TreeDataProvider<QueryNode> {
           return `↔️ ${operatorText}`;
         }
         return `⚙️ ${operatorText}`;
+    }
+  }
+
+  private getIndentedLabel(text: string, depth: number): string {
+    // Instead of text indentation, use different visual cues for different types
+    // VS Code tree view already provides visual indentation through hierarchy
+    
+    // Add type-specific prefixes for better categorization
+    switch (depth) {
+      case 0:
+        return text; // Root level - no prefix
+      case 1:
+        return `▶ ${text}`; // First level - arrow
+      case 2:
+        return `◆ ${text}`; // Second level - diamond
+      case 3:
+        return `◇ ${text}`; // Third level - hollow diamond
+      default:
+        return `• ${text}`; // Deeper levels - bullet
     }
   }
 

@@ -153,30 +153,42 @@ apple AND banana OR cherry
 (contract OR agreement) W/10 document
 "exact phrase" AND wildcard*
 
-// Simple query for tree view:
+// TREE VIEW INDENTATION TEST CASES (observe improved hierarchy in sidebar):
+
+// Simple operator with terms:
 apple AND banana
 
-// Nested groups:
-(apple OR banana) AND (document OR contract)
+// Complex nested structure:
+(contract OR agreement) AND (legal OR binding) W/10 document
 
-// Complex proximity with groups:
-((legal OR binding) AND contract) W/10 ((party OR entity) AND agreement)
+// Multiple operators with clear hierarchy:
+apple AND banana OR cherry AND document W/5 legal
 
-// Mixed operators for tree analysis:
-(apple OR banana W/5 tree) AND (fast OR slow)
+// Deep nesting to show indentation levels:
+((term1 OR term2) AND (term3 OR term4)) W/10 ((result1 OR result2) AND final)
 
-// Deep nesting to test tree hierarchy:
-((((term1 OR term2) AND (term3 OR term4)) W/5 ((term5 OR term6) AND (term7 OR term8))) OR (((term9 OR term10) AND (term11 OR term12)) W/3 ((term13 OR term14) AND (term15 OR term16))))
-
-// Phrase searches in tree:
-"exact phrase" AND (apple OR "another phrase") W/10 document
-
-// Wildcard terms for performance warnings:
-*leading AND trailing* OR middle*term
-
-// Error cases for tree error detection:
-(unbalanced parens AND missing
-"unbalanced quotes AND terms
+// Mixed content types for visual separation:
+"exact phrase" AND wildcard* OR (group AND terms) W/3 proximity
 
 // Real-world complex query:
 ((contract OR agreement OR document) AND (legal OR binding OR valid)) W/20 (((party OR entity OR organization) AND (first OR second OR third)) OR ((clause OR section OR provision) AND (term OR condition OR requirement)))
+
+// OPERATOR FLOW DIAGRAM TEST CASES (right-click and select "Show Operator Flow Diagram"):
+
+// Simple precedence example:
+apple AND banana OR cherry
+
+// Complex precedence with proximity:
+(contract OR agreement) AND document W/10 legal NOT invalid
+
+// Multiple proximity operators:
+apple W/5 banana PRE/3 cherry AND document
+
+// Nested groups with mixed operators:
+((term1 OR term2) AND (term3 OR term4)) W/10 (result NOT excluded)
+
+// Performance analysis example:
+*leading AND trailing* OR (many OR terms OR in OR single OR group OR for OR performance OR analysis OR here OR over OR ten OR terms)
+
+// Real-world legal query flow:
+((contract OR agreement) AND (binding OR valid)) W/15 ((party OR entity) AND (first OR second)) NOT (void OR invalid OR terminated)
