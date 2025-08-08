@@ -1,0 +1,202 @@
+// dtSearch Query Test File - Proximity Validation Examples
+
+// These patterns should trigger ambiguous proximity warnings:
+
+// Pattern 1: Complex expressions with proximity operator
+(apple AND banana) W/10 (pear AND grape)
+(cat OR dog) W/5 (mouse AND bird)
+
+// Pattern 2: Nested proximity expressions  
+(apple w/10 banana) w/10 (pear and grape)
+(term1 w/5 term2) w/3 (term3 or term4)
+
+// Pattern 3: Multiple proximity operators in sequence
+apple w/10 banana w/5 cherry
+document w/20 important w/10 information
+
+// These should be fine (clearer proximity usage):
+apple W/10 banana
+"exact phrase" W/5 keyword
+apple AND (banana W/10 cherry)
+
+// Mixed operator validation:
+apple AND banana OR cherry
+
+// Noise words (should show hover tooltips):
+apple and the banana
+document with a keyword
+
+// Test real-time formatting:
+apple w5 banana
+document w10 keyword
+
+// NEW: OR splitting examples (select these and use Ctrl+Shift+S to split):
+(dog OR cat OR bird) W/5 (house OR yard OR field)
+(red OR blue OR green) AND (car OR truck)
+(apple OR orange) W/3 (juice OR smoothie OR drink)
+(monday OR tuesday OR wednesday) PRE/2 (meeting OR call)
+
+// QUOTE VALIDATION TESTS:
+// This should NOT trigger warning (operators between quoted pairs):
+typhoon AND "cebu city" AND resort AND (damage OR landscape OR claim OR audit OR standard OR "nature works" OR tami OR stevenson)
+
+// This SHOULD trigger warning (operators inside quotes):
+"apple AND orange" OR "cat AND dog"
+"search term with OR operator inside"
+
+// This should NOT trigger warning (operators outside quotes):
+"apple" AND "orange" OR "banana"
+
+// AUTO-FIX TEST CASES (select these and use Ctrl+Shift+X to auto-fix):
+
+// Duplicate operators:
+apple AND AND banana
+cat OR OR dog OR OR bird
+document AND AND AND contract
+
+// Unbalanced parentheses:
+(apple AND banana
+cat OR (dog AND bird
+((nested parens)
+extra closing)))
+
+// Unbalanced quotes:
+"apple AND banana
+"quoted phrase without closing
+
+// Common misspellings:
+appel AND banan W/5 documnt
+contrat OR agrement AND adress
+goverment AND managment W/3 comittee
+
+// Nautical/Maritime misspellings:
+"yact charter" W/5 (boat OR captin OR shoar)
+harber AND marinah OR ancher
+navagation AND passanger W/10 equipement
+
+// Invalid proximity operators:
+apple w5 banana
+document pre10 contract
+search w20 term
+
+// Mixed case operators:
+apple and banana or cherry
+document AND contract or agreement
+
+// Improper nested proximity operators:
+(apple W/10 banana W/5 cherry)
+(term1 PRE/5 term2 W/3 term3)
+(contract NEAR agreement W/10 document)
+(apple w/10 banana w/5 cherry w/3 grape)
+
+// Cross-group nested proximity (SHOULD SHOW ERROR):
+(dog OR cat OR bird) W/5 (yard OR garden OR park W/10 man)
+(contract OR agreement) W/15 (legal OR binding PRE/5 document)
+(term1 PRE/3 term2) W/10 (result OR outcome W/5 final)
+
+// User's specific test case:
+(dog OR cat OR bird) W/5 (yard OR garden OR park W/10 man)
+
+// Mixed boolean and proximity operators (ambiguous precedence):
+(dog OR cat OR bird) AND (adoption OR rescue W/10 shelter)
+(apple OR banana W/5 tree)
+(contract AND agreement W/10 document OR clause)
+(red OR blue W/3 car AND fast)
+
+// Excessive spaces:
+apple    AND    banana     OR     cherry
+"phrase   with    spaces"     AND    term
+
+// PERFORMANCE OPTIMIZATION TEST CASES (select these and use Ctrl+Shift+X to review warnings):
+
+// Leading wildcards (very slow):
+*apple AND banana
+contract OR *agreement
+(*cat OR *dog) AND house
+
+// Too many OR terms in one group (>10):
+(apple OR banana OR cherry OR grape OR orange OR lemon OR lime OR peach OR plum OR berry OR mango OR kiwi) AND fruit
+
+// Nested wildcards (inefficient):
+app*le*
+con*tra*ct
+man*age*ment AND docu*me*nt
+
+// Very wide proximity ranges (slow):
+apple W/150 banana
+contract W/500 agreement
+document W/1000 important
+
+// Multiple leading wildcards in OR group (extremely slow):
+(*apple OR *banana OR *cherry) AND fruit
+(*contract OR *agreement OR *document) W/10 legal
+
+// RAINBOW BRACKETS TEST CASES (observe the colorful nested parentheses):
+
+// Simple nesting:
+(apple AND banana)
+((apple AND banana) OR (cherry AND grape))
+
+// Complex nesting levels:
+(((apple OR banana) AND (cherry OR grape)) W/10 ((document OR contract) AND (agreement OR clause)))
+
+// Deep nesting with mixed operators:
+((((red OR blue) AND (fast OR slow)) W/5 ((car OR truck) AND (new OR old))) OR (((green OR yellow) AND (big OR small)) W/3 ((bike OR cycle) AND (road OR mountain))))
+
+// Real-world complex query with rainbow brackets:
+(((contract OR agreement) AND (legal OR binding)) W/10 (((party OR entity) AND (first OR second)) OR ((clause OR section) AND (term OR condition))))
+
+// Unbalanced for testing error highlighting:
+(((apple AND banana) OR (cherry AND grape)
+((document OR contract) AND (agreement OR clause))))
+
+// QUERY TREE VIEW TEST CASES (observe in the sidebar dtSearch Query Tree):
+
+// TEST CASE FOR OR IN ORANGE BUG FIX:
+(apple OR orange) W/3 (juice OR smoothie OR drink)
+
+// TEST CASE FOR MULTI-LINE POSITION TRACKING:
+// Right-click on each of these lines individually to test position tracking
+apple AND banana OR cherry
+(contract OR agreement) W/10 document
+"exact phrase" AND wildcard*
+
+// TREE VIEW INDENTATION TEST CASES (observe improved hierarchy in sidebar):
+
+// Simple operator with terms:
+apple AND banana
+
+// Complex nested structure:
+(contract OR agreement) AND (legal OR binding) W/10 document
+
+// Multiple operators with clear hierarchy:
+apple AND banana OR cherry AND document W/5 legal
+
+// Deep nesting to show indentation levels:
+((term1 OR term2) AND (term3 OR term4)) W/10 ((result1 OR result2) AND final)
+
+// Mixed content types for visual separation:
+"exact phrase" AND wildcard* OR (group AND terms) W/3 proximity
+
+// Real-world complex query:
+((contract OR agreement OR document) AND (legal OR binding OR valid)) W/20 (((party OR entity OR organization) AND (first OR second OR third)) OR ((clause OR section OR provision) AND (term OR condition OR requirement)))
+
+// OPERATOR FLOW DIAGRAM TEST CASES (right-click and select "Show Operator Flow Diagram"):
+
+// Simple precedence example:
+apple AND banana OR cherry
+
+// Complex precedence with proximity:
+(contract OR agreement) AND document W/10 legal NOT invalid
+
+// Multiple proximity operators:
+apple W/5 banana PRE/3 cherry AND document
+
+// Nested groups with mixed operators:
+((term1 OR term2) AND (term3 OR term4)) W/10 (result NOT excluded)
+
+// Performance analysis example:
+*leading AND trailing* OR (many OR terms OR in OR single OR group OR for OR performance OR analysis OR here OR over OR ten OR terms)
+
+// Real-world legal query flow:
+((contract OR agreement) AND (binding OR valid)) W/15 ((party OR entity) AND (first OR second)) NOT (void OR invalid OR terminated)

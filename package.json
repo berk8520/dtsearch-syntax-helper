@@ -125,11 +125,20 @@
         }
       ]
     },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dtsearch",
+          "title": "dtSearch",
+          "icon": "$(search-view-icon)"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "dtsearch": [
         {
           "id": "dtsearchQueryTree",
-          "name": "dtSearch Query Tree",
+          "name": "Query Tree",
           "when": "resourceExtname == '.dt' || editorLangId == 'dtsearch'",
           "icon": "$(symbol-structure)"
         }

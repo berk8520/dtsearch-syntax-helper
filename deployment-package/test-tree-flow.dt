@@ -1,0 +1,2 @@
+// Test query for the new tree-based flow diagram
+(dog OR cat) AND W/5 bird NOT "dead animal"
