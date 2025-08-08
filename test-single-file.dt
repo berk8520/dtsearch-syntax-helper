@@ -1,0 +1,8 @@
+# Test Single File dtSearch Query
+# This file tests if tree view works with single file (no workspace)
+
+# Test query with precedence issues that should trigger errors
+(dog OR cat AND man) AND W/5 bird NOT "dead animal"
+
+# Simple query for tree display
+author CONTAINS Smith AND title W/3 analysis

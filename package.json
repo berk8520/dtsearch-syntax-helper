@@ -139,7 +139,6 @@
         {
           "id": "dtsearchQueryTree",
           "name": "Query Tree",
-          "when": "resourceExtname == '.dt' || editorLangId == 'dtsearch'",
           "icon": "$(symbol-structure)"
         }
       ]
@@ -147,7 +146,7 @@
     "viewsWelcome": [
       {
         "view": "dtsearchQueryTree",
-        "contents": "No dtSearch query detected.\n\nOpen a .dt file or set the language mode to 'dtsearch' to see the query structure.\n\n[Open File](command:workbench.action.files.openFile)"
+        "contents": "Welcome to dtSearch Query Tree!\n\nTo see query structure:\n• Open a .dt file\n• Or create a new file and set language to 'dtsearch'\n\n[Open File](command:workbench.action.files.openFile)\n[New File](command:workbench.action.files.newUntitledFile)\n\nThe tree view will show the hierarchical structure of your dtSearch queries with performance analysis."
       }
     ],
     "keybindings": [

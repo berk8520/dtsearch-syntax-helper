@@ -24,12 +24,13 @@ code --install-extension dtsearchsyntaxhelper-0.0.1.vsix
 ### Key Features to Test
 
 #### 1. Tree View (Activity Bar)
-- Open any `.dt` file
-- Check that "dtSearch" icon appears in the Activity Bar (left sidebar)
+- **dtSearch icon should ALWAYS be visible** in the Activity Bar (left sidebar)
 - Click the dtSearch icon to open the dtSearch panel
-- Verify "Query Tree" view shows hierarchical query structure
+- **Works with or without a folder open** - no workspace required!
+- When a `.dt` file is open: Shows hierarchical query structure
+- When no `.dt` file is open: Shows welcome message with helpful links
 - Test clicking on tree nodes to jump to query parts
-- **Note: Tree view now has its own dedicated panel - no need for a folder to be open!**
+- **This should work even when opening a single .dt file without a folder**
 
 #### 2. Tree-Based Flow Diagram
 - Open a `.dt` file with a query
@@ -102,11 +103,11 @@ Right-click in any `.dt` file to access:
 ## 🔧 Troubleshooting
 
 ### Tree View Not Showing
-- Ensure file has `.dt` extension
-- Look for dtSearch icon in Activity Bar (left sidebar) - click it to open dtSearch panel
-- Try setting language mode to "dtsearch" (`Ctrl+K M`)
-- Reload window (`Ctrl+Shift+P` → "Reload Window")
-- **New: Tree view is now in its own dedicated panel, accessible without needing a folder open**
+- **dtSearch icon should ALWAYS be in Activity Bar** - look for it in the left sidebar
+- Click the dtSearch icon to open the panel (works without any folder open)
+- If no dtSearch icon: Ensure extension is installed and enabled
+- Try reloading window (`Ctrl+Shift+P` → "Reload Window")
+- **Fixed: Tree view now works with single files, no workspace/folder required**
 
 ### Performance Issues
 - Large queries may take a moment to analyze

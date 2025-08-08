@@ -1,0 +1,7 @@
+# Test complex OR query with nested parentheses
+(dog OR cat OR bird) W/5 (yard OR garden OR park W/10 man)
+
+# Simpler test cases
+(dog OR cat)
+dog OR cat OR bird
+(yard OR garden)

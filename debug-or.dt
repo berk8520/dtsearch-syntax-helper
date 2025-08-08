@@ -1,0 +1,8 @@
+# Debug: Simple OR test
+dog OR cat
+
+# Debug: Multiple OR test  
+dog OR cat OR bird
+
+# Debug: Complex query with issue
+(dog OR cat OR bird) W/5 (yard OR garden OR park W/10 man)

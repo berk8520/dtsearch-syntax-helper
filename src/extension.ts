@@ -2704,6 +2704,10 @@ class QueryTreeProvider implements vscode.TreeDataProvider<QueryNode> {
         const operatorColors = this.getOperatorIconAndColor(element.label);
         treeItem.iconPath = new vscode.ThemeIcon(operatorColors.icon, operatorColors.color);
         treeItem.contextValue = 'operator';
+        // Debug: Force operator nodes to be expandable if they should have children
+        if (element.children && element.children.length > 0) {
+          treeItem.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+        }
         break;
       case 'term':
         // Check if it's a wildcard term and style accordingly
@@ -2908,6 +2912,202 @@ class QueryTreeProvider implements vscode.TreeDataProvider<QueryNode> {
   }
 
   private buildQueryTree(tokens: Array<{type: string, value: string, start: number, end: number}>, depth: number = 0): QueryNode[] {
+    // First, parse with operator precedence
+    return this.parseWithPrecedence(tokens);
+  }
+
+  private parseWithPrecedence(tokens: Array<{type: string, value: string, start: number, end: number}>): QueryNode[] {
+    // Parse tokens in the order they appear (left-to-right) for natural flow
+    return this.parseTokensSequentially(tokens);
+  }
+
+  private parseTokensSequentially(tokens: Array<{type: string, value: string, start: number, end: number}>): QueryNode[] {
+    const nodes: QueryNode[] = [];
+    let i = 0;
+
+    while (i < tokens.length) {
+      const token = tokens[i];
+
+      if (token.type === 'paren' && token.value === '(') {
+        // Handle grouped expressions
+        let parenCount = 1;
+        let j = i + 1;
+        const groupTokens: Array<{type: string, value: string, start: number, end: number}> = [];
+
+        while (j < tokens.length && parenCount > 0) {
+          if (tokens[j].value === '(') {
+            parenCount++;
+          } else if (tokens[j].value === ')') {
+            parenCount--;
+          }
+
+          if (parenCount > 0) {
+            groupTokens.push(tokens[j]);
+          }
+          j++;
+        }
+
+        const groupNode: QueryNode = {
+          type: 'group',
+          label: `📦 Group (${groupTokens.length} items)`,
+          children: this.parseTokensSequentially(groupTokens),
+          position: { start: token.start, end: j > i ? tokens[j-1].end : token.end }
+        };
+
+        nodes.push(groupNode);
+        i = j;
+      } else if (token.type === 'operator') {
+        // Create operator node and collect its immediate operands
+        const operatorNode: QueryNode = {
+          type: 'operator',
+          label: this.colorizeOperatorLabel(token.value),
+          children: [],
+          position: { start: token.start, end: token.end },
+          description: this.getOperatorDescription(token.value)
+        };
+
+        // For binary operators, look for the next term/group as right operand
+        if (i + 1 < tokens.length && tokens[i + 1].type !== 'operator') {
+          const nextToken = tokens[i + 1];
+          let rightOperand: QueryNode;
+
+          if (nextToken.type === 'paren' && nextToken.value === '(') {
+            // Handle grouped right operand
+            let parenCount = 1;
+            let k = i + 2;
+            const rightGroupTokens: Array<{type: string, value: string, start: number, end: number}> = [];
+
+            while (k < tokens.length && parenCount > 0) {
+              if (tokens[k].value === '(') {
+                parenCount++;
+              } else if (tokens[k].value === ')') {
+                parenCount--;
+              }
+
+              if (parenCount > 0) {
+                rightGroupTokens.push(tokens[k]);
+              }
+              k++;
+            }
+
+            rightOperand = {
+              type: 'group',
+              label: `📦 Group (${rightGroupTokens.length} items)`,
+              children: this.parseTokensSequentially(rightGroupTokens),
+              position: { start: nextToken.start, end: k > i + 1 ? tokens[k-1].end : nextToken.end }
+            };
+            i = k; // Skip past the group
+          } else {
+            // Handle simple term operand
+            rightOperand = this.createTermNode(nextToken);
+            i += 2; // Skip operator and operand
+          }
+
+          operatorNode.children = [rightOperand];
+        } else {
+          i++; // Just skip the operator if no right operand
+        }
+
+        nodes.push(operatorNode);
+      } else if (token.type === 'paren' && token.value === ')') {
+        // Skip standalone closing parentheses
+        i++;
+      } else {
+        // Handle terms, phrases, wildcards
+        nodes.push(this.createTermNode(token));
+        i++;
+      }
+    }
+
+    return nodes;
+  }
+
+  private createTermNode(token: {type: string, value: string, start: number, end: number}): QueryNode {
+    if (token.type === 'phrase') {
+      return {
+        type: 'phrase',
+        label: `💬 ${token.value}`,
+        position: { start: token.start, end: token.end },
+        description: 'Exact phrase search'
+      };
+    } else if (token.type === 'wildcard') {
+      return {
+        type: 'warning',
+        label: `🔍 ${token.value}`,
+        position: { start: token.start, end: token.end },
+        description: 'Wildcard search (may impact performance)'
+      };
+    } else {
+      return {
+        type: 'term',
+        label: `📝 ${token.value}`,
+        position: { start: token.start, end: token.end },
+        description: 'Search term'
+      };
+    }
+  }
+
+  // Commented out precedence-based parsing functions - keeping sequential parsing instead
+  /*
+  private findOperatorWithPrecedence(tokens: Array<{type: string, value: string, start: number, end: number}>, operators: string[]): number {
+    // Find the rightmost operator of this precedence level for left-associative parsing
+    let lastFoundIndex = -1;
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i].type === 'operator') {
+        const upperValue = tokens[i].value.toUpperCase();
+        for (const op of operators) {
+          if (upperValue === op || (op.endsWith('/') && upperValue.startsWith(op))) {
+            lastFoundIndex = i;
+          }
+        }
+      }
+    }
+    return lastFoundIndex;
+  }
+
+  private createBinaryOperatorTree(tokens: Array<{type: string, value: string, start: number, end: number}>, operatorIndex: number, operatorType: string): QueryNode[] {
+    const operatorToken = tokens[operatorIndex];
+    const leftTokens = tokens.slice(0, operatorIndex);
+    const rightTokens = tokens.slice(operatorIndex + 1);
+
+    const operatorNode: QueryNode = {
+      type: 'operator',
+      label: this.colorizeOperatorLabel(operatorToken.value),
+      children: [],
+      position: { start: operatorToken.start, end: operatorToken.end },
+      description: this.getOperatorDescription(operatorToken.value)
+    };
+
+    // Recursively parse left and right operands
+    const leftNodes = leftTokens.length > 0 ? this.parseWithPrecedence(leftTokens) : [];
+    const rightNodes = rightTokens.length > 0 ? this.parseWithPrecedence(rightTokens) : [];
+
+    operatorNode.children = [...leftNodes, ...rightNodes];
+    
+    return [operatorNode];
+  }
+
+  private createUnaryOperatorTree(tokens: Array<{type: string, value: string, start: number, end: number}>, operatorIndex: number, operatorType: string): QueryNode[] {
+    const operatorToken = tokens[operatorIndex];
+    const rightTokens = tokens.slice(operatorIndex + 1);
+
+    const operatorNode: QueryNode = {
+      type: 'operator',
+      label: this.colorizeOperatorLabel(operatorToken.value),
+      children: [],
+      position: { start: operatorToken.start, end: operatorToken.end },
+      description: this.getOperatorDescription(operatorToken.value)
+    };
+
+    // Parse what follows the NOT operator
+    const rightNodes = rightTokens.length > 0 ? this.parseWithPrecedence(rightTokens) : [];
+    operatorNode.children = rightNodes;
+    
+    return [operatorNode];
+  }
+  */
+
+  private processTokensAsTerms(tokens: Array<{type: string, value: string, start: number, end: number}>): QueryNode[] {
     const nodes: QueryNode[] = [];
     let i = 0;
 
@@ -2936,65 +3136,20 @@ class QueryTreeProvider implements vscode.TreeDataProvider<QueryNode> {
         const groupNode: QueryNode = {
           type: 'group',
           label: `📦 Group (${groupTokens.length} items)`,
-          children: this.buildQueryTree(groupTokens, depth + 1),
+          children: this.parseWithPrecedence(groupTokens),
           position: { start: token.start, end: j > i ? tokens[j-1].end : token.end }
         };
 
         nodes.push(groupNode);
         i = j;
-      } else if (token.type === 'operator') {
-        // Create an operator node with its operands as children
-        const operatorNode: QueryNode = {
-          type: 'operator',
-          label: this.colorizeOperatorLabel(token.value),
-          children: [],
-          position: { start: token.start, end: token.end },
-          description: this.getOperatorDescription(token.value)
-        };
-
-        // Look ahead to group terms with this operator
-        const operands: QueryNode[] = [];
-        let k = i + 1;
-        
-        // Collect operands (terms, phrases, wildcards) that follow this operator
-        while (k < tokens.length && tokens[k].type !== 'operator' && tokens[k].type !== 'paren') {
-          const operandToken = tokens[k];
-          
-          if (operandToken.type === 'phrase') {
-            operands.push({
-              type: 'phrase',
-              label: `💬 ${operandToken.value}`,
-              position: { start: operandToken.start, end: operandToken.end },
-              description: 'Exact phrase search'
-            });
-          } else if (operandToken.type === 'wildcard') {
-            operands.push({
-              type: 'warning',
-              label: `🔍 ${operandToken.value}`,
-              position: { start: operandToken.start, end: operandToken.end },
-              description: 'Wildcard search (may impact performance)'
-            });
-          } else {
-            operands.push({
-              type: 'term',
-              label: `📝 ${operandToken.value}`,
-              position: { start: operandToken.start, end: operandToken.end },
-              description: 'Search term'
-            });
-          }
-          k++;
-        }
-
-        if (operands.length > 0) {
-          operatorNode.children = operands;
-          i = k; // Skip the processed operands
-        } else {
-          i++;
-        }
-
-        nodes.push(operatorNode);
       } else {
-        // Handle standalone terms, phrases, wildcards
+        // Handle standalone terms, phrases, wildcards, but skip standalone closing parentheses
+        if (token.type === 'paren' && token.value === ')') {
+          // Skip standalone closing parentheses - they should have been handled by group processing
+          i++;
+          continue;
+        }
+        
         if (token.type === 'phrase') {
           nodes.push({
             type: 'phrase',
@@ -3100,7 +3255,8 @@ class QueryTreeProvider implements vscode.TreeDataProvider<QueryNode> {
   }
 
   private getOperatorIconAndColor(operatorText: string): {icon: string, color: vscode.ThemeColor} {
-    const operator = operatorText.toUpperCase().trim();
+    // Remove emoji and extract operator name
+    const operator = operatorText.replace(/[🔗🌿❌↔️⚙️]\s*/g, '').toUpperCase().trim();
     
     switch (operator) {
       case 'AND':
