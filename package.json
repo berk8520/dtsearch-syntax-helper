@@ -49,29 +49,47 @@
       {
         "command": "dtsearchsyntaxhelper.jumpToLine",
         "title": "DT Search: Jump to Line"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.refreshQueryTree",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.jumpToQueryNode",
+        "title": "Jump to Query Node"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.sendLineToTree",
+        "title": "DT Search: Send Line to Tree View"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "command": "dtsearchsyntaxhelper.cleanUpQuery",
-          "when": "editorHasSelection",
-          "group": "navigation"
+          "when": "editorHasSelection && (resourceExtname == .dt || editorLangId == dtsearch)",
+          "group": "dtsearch@1"
         },
         {
           "command": "dtsearchsyntaxhelper.reviewErrors",
-          "when": "editorHasSelection",
-          "group": "navigation@2"
+          "when": "editorHasSelection && (resourceExtname == .dt || editorLangId == dtsearch)",
+          "group": "dtsearch@2"
         },
         {
           "command": "dtsearchsyntaxhelper.splitOrSearches",
-          "when": "editorHasSelection",
-          "group": "navigation@3"
+          "when": "editorHasSelection && (resourceExtname == .dt || editorLangId == dtsearch)",
+          "group": "dtsearch@3"
         },
         {
           "command": "dtsearchsyntaxhelper.showOperatorHelp",
-          "when": "resourceExtname == .dts",
-          "group": "navigation"
+          "when": "resourceExtname == .dt || editorLangId == dtsearch",
+          "group": "dtsearch@4"
+        },
+        {
+          "command": "dtsearchsyntaxhelper.sendLineToTree",
+          "when": "resourceExtname == .dt || editorLangId == dtsearch",
+          "group": "dtsearch@5"
         }
       ],
       "commandPalette": [
@@ -83,8 +101,37 @@
           "command": "dtsearchsyntaxhelper.showOperatorHelp",
           "when": "editorLangId == dtsearch"
         }
+      ],
+      "view/title": [
+        {
+          "command": "dtsearchsyntaxhelper.refreshQueryTree",
+          "when": "view == dtsearchQueryTree",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "dtsearchsyntaxhelper.jumpToQueryNode",
+          "when": "view == dtsearchQueryTree && viewItem == queryNode"
+        }
       ]
     },
+    "views": {
+      "explorer": [
+        {
+          "id": "dtsearchQueryTree",
+          "name": "dtSearch Query Tree",
+          "when": "resourceExtname == .dt || editorLangId == dtsearch",
+          "icon": "$(symbol-structure)"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "dtsearchQueryTree",
+        "contents": "No dtSearch query detected.\n\nOpen a .dt file or set the language mode to 'dtsearch' to see the query structure.\n\n[Open File](command:workbench.action.files.openFile)"
+      }
+    ],
     "keybindings": [
       {
         "command": "dtsearchsyntaxhelper.cleanUpQuery",
@@ -118,7 +165,7 @@
       {
         "id": "dtsearch",
         "aliases": ["DTSearch", "dtsearch", "DTS"],
-        "extensions": [".dts", ".DTS"],
+        "extensions": [".dt", ".DT"],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -143,12 +190,24 @@
         "dtsearch.autoCleanupOnSave": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically clean up queries when saving .dts files"
+          "description": "Automatically clean up queries when saving .dt files"
         },
         "dtsearch.enableSyntaxValidation": {
           "type": "boolean",
           "default": true,
           "description": "Enable real-time syntax validation with error detection and suggestions"
+        },
+        "dtsearch.enableRainbowBrackets": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable rainbow coloring for nested parentheses"
+        },
+        "dtsearch.rainbowBracketColors": {
+          "type": "number",
+          "default": 12,
+          "minimum": 3,
+          "maximum": 20,
+          "description": "Number of colors to cycle through for rainbow brackets"
         }
       }
     }

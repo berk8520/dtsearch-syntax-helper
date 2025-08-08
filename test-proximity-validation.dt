@@ -83,6 +83,18 @@ search w20 term
 apple and banana or cherry
 document AND contract or agreement
 
+// Improper nested proximity operators:
+(apple W/10 banana W/5 cherry)
+(term1 PRE/5 term2 W/3 term3)
+(contract NEAR agreement W/10 document)
+(apple w/10 banana w/5 cherry w/3 grape)
+
+// Mixed boolean and proximity operators (ambiguous precedence):
+(dog OR cat OR bird) AND (adoption OR rescue W/10 shelter)
+(apple OR banana W/5 tree)
+(contract AND agreement W/10 document OR clause)
+(red OR blue W/3 car AND fast)
+
 // Excessive spaces:
 apple    AND    banana     OR     cherry
 "phrase   with    spaces"     AND    term
@@ -110,3 +122,61 @@ document W/1000 important
 // Multiple leading wildcards in OR group (extremely slow):
 (*apple OR *banana OR *cherry) AND fruit
 (*contract OR *agreement OR *document) W/10 legal
+
+// RAINBOW BRACKETS TEST CASES (observe the colorful nested parentheses):
+
+// Simple nesting:
+(apple AND banana)
+((apple AND banana) OR (cherry AND grape))
+
+// Complex nesting levels:
+(((apple OR banana) AND (cherry OR grape)) W/10 ((document OR contract) AND (agreement OR clause)))
+
+// Deep nesting with mixed operators:
+((((red OR blue) AND (fast OR slow)) W/5 ((car OR truck) AND (new OR old))) OR (((green OR yellow) AND (big OR small)) W/3 ((bike OR cycle) AND (road OR mountain))))
+
+// Real-world complex query with rainbow brackets:
+(((contract OR agreement) AND (legal OR binding)) W/10 (((party OR entity) AND (first OR second)) OR ((clause OR section) AND (term OR condition))))
+
+// Unbalanced for testing error highlighting:
+(((apple AND banana) OR (cherry AND grape)
+((document OR contract) AND (agreement OR clause))))
+
+// QUERY TREE VIEW TEST CASES (observe in the sidebar dtSearch Query Tree):
+
+// TEST CASE FOR OR IN ORANGE BUG FIX:
+(apple OR orange) W/3 (juice OR smoothie OR drink)
+
+// TEST CASE FOR MULTI-LINE POSITION TRACKING:
+// Right-click on each of these lines individually to test position tracking
+apple AND banana OR cherry
+(contract OR agreement) W/10 document
+"exact phrase" AND wildcard*
+
+// Simple query for tree view:
+apple AND banana
+
+// Nested groups:
+(apple OR banana) AND (document OR contract)
+
+// Complex proximity with groups:
+((legal OR binding) AND contract) W/10 ((party OR entity) AND agreement)
+
+// Mixed operators for tree analysis:
+(apple OR banana W/5 tree) AND (fast OR slow)
+
+// Deep nesting to test tree hierarchy:
+((((term1 OR term2) AND (term3 OR term4)) W/5 ((term5 OR term6) AND (term7 OR term8))) OR (((term9 OR term10) AND (term11 OR term12)) W/3 ((term13 OR term14) AND (term15 OR term16))))
+
+// Phrase searches in tree:
+"exact phrase" AND (apple OR "another phrase") W/10 document
+
+// Wildcard terms for performance warnings:
+*leading AND trailing* OR middle*term
+
+// Error cases for tree error detection:
+(unbalanced parens AND missing
+"unbalanced quotes AND terms
+
+// Real-world complex query:
+((contract OR agreement OR document) AND (legal OR binding OR valid)) W/20 (((party OR entity OR organization) AND (first OR second OR third)) OR ((clause OR section OR provision) AND (term OR condition OR requirement)))

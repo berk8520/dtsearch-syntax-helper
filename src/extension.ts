@@ -286,6 +286,89 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(jumpToLine);
 
+  // Initialize and register Query Tree Provider
+  queryTreeProvider = new QueryTreeProvider();
+  vscode.window.registerTreeDataProvider('dtsearchQueryTree', queryTreeProvider);
+
+  // Register tree view commands
+  const refreshQueryTree = vscode.commands.registerCommand('dtsearchsyntaxhelper.refreshQueryTree', () => {
+    queryTreeProvider.refresh();
+  });
+  context.subscriptions.push(refreshQueryTree);
+
+  const jumpToQueryNode = vscode.commands.registerCommand('dtsearchsyntaxhelper.jumpToQueryNode', (position: {start: number, end: number}) => {
+    const editor = vscode.window.activeTextEditor;
+    if (editor && position) {
+      let startPos: vscode.Position;
+      let endPos: vscode.Position;
+      
+      if (queryTreeProvider.isInCustomQueryMode()) {
+        // In custom query mode, adjust positions to the original line
+        const customLineInfo = queryTreeProvider.getCustomLineInfo();
+        if (customLineInfo.lineNumber >= 0) {
+          const line = editor.document.lineAt(customLineInfo.lineNumber);
+          const lineStart = line.range.start;
+          
+          // Find the start of the actual query text within the line (skip leading whitespace)
+          const lineText = line.text;
+          const queryStartInLine = lineText.indexOf(customLineInfo.queryText);
+          const absoluteQueryStart = lineStart.character + queryStartInLine;
+          
+          // Calculate the absolute positions
+          const absoluteStart = absoluteQueryStart + position.start;
+          const absoluteEnd = absoluteQueryStart + position.end;
+          
+          startPos = new vscode.Position(customLineInfo.lineNumber, absoluteStart);
+          endPos = new vscode.Position(customLineInfo.lineNumber, absoluteEnd);
+        } else {
+          // Fallback to document positions
+          startPos = editor.document.positionAt(position.start);
+          endPos = editor.document.positionAt(position.end);
+        }
+      } else {
+        // Normal mode - use document positions directly
+        startPos = editor.document.positionAt(position.start);
+        endPos = editor.document.positionAt(position.end);
+      }
+      
+      editor.selection = new vscode.Selection(startPos, endPos);
+      editor.revealRange(new vscode.Range(startPos, endPos), vscode.TextEditorRevealType.InCenter);
+    }
+  });
+  context.subscriptions.push(jumpToQueryNode);
+
+  const sendLineToTree = vscode.commands.registerCommand('dtsearchsyntaxhelper.sendLineToTree', () => {
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      const selection = editor.selection;
+      let lineText: string;
+      let lineNumber: number;
+      let startOffset: number;
+      
+      if (selection.isEmpty) {
+        // No selection, use current line
+        const currentLine = editor.document.lineAt(selection.active.line);
+        lineText = currentLine.text.trim();
+        lineNumber = selection.active.line;
+        startOffset = currentLine.range.start.character;
+      } else {
+        // Use selected text
+        lineText = editor.document.getText(selection).trim();
+        lineNumber = selection.start.line;
+        startOffset = selection.start.character;
+      }
+      
+      // Filter out comment lines and empty lines
+      if (lineText && !lineText.startsWith('//') && lineText.length > 0) {
+        // Update the tree view with just this line and context information
+        queryTreeProvider.setCustomQuery(lineText, lineNumber, startOffset);
+      } else {
+        vscode.window.showInformationMessage('Please select a valid query line (not a comment or empty line)');
+      }
+    }
+  });
+  context.subscriptions.push(sendLineToTree);
+
   // Register event listeners for active editor changes
   vscode.window.onDidChangeActiveTextEditor(editor => {
     // Reset force mode when switching editors
@@ -295,6 +378,11 @@ export function activate(context: vscode.ExtensionContext) {
       debouncedHighlight(editor);
       validateSyntax(editor.document);
       updateStatusBar();
+    }
+    
+    // Always refresh tree (will show empty if not dtSearch file)
+    if (queryTreeProvider) {
+      queryTreeProvider.refresh();
     }
   }, null, context.subscriptions);
 
@@ -309,13 +397,18 @@ export function activate(context: vscode.ExtensionContext) {
       debouncedHighlight(vscode.window.activeTextEditor);
       validateSyntax(event.document);
       updateStatusBar();
+      
+      // Refresh query tree
+      if (queryTreeProvider) {
+        queryTreeProvider.refresh();
+      }
     }
   }, null, context.subscriptions);
 
   // Auto-save cleanup if enabled
   vscode.workspace.onDidSaveTextDocument(document => {
     const config = vscode.workspace.getConfiguration('dtsearch');
-    if (config.get('autoCleanupOnSave', false) && document.fileName.endsWith('.dts')) {
+    if (config.get('autoCleanupOnSave', false) && document.fileName.endsWith('.dt')) {
       // Auto-cleanup would go here if selection exists
     }
   }, null, context.subscriptions);
@@ -342,7 +435,7 @@ export function activate(context: vscode.ExtensionContext) {
 // Helper functions
 function isDtSearchFile(editor: vscode.TextEditor): boolean {
   const fileName = editor.document.fileName.toLowerCase();
-  return fileName.endsWith('.dts') || editor.document.languageId === 'dtsearch' || forceDtSearchMode;
+  return fileName.endsWith('.dt') || editor.document.languageId === 'dtsearch' || forceDtSearchMode;
 }
 
 function debouncedHighlight(editor: vscode.TextEditor) {
@@ -711,6 +804,11 @@ function provideNoiseWordHover(document: vscode.TextDocument, position: vscode.P
 }
 
 function initializeDecorations() {
+  // Load configuration
+  const config = vscode.workspace.getConfiguration('dtsearch');
+  const enableRainbowBrackets = config.get('enableRainbowBrackets', true);
+  const rainbowBracketColors = config.get('rainbowBracketColors', 12);
+
   // Operator decoration - blue color
   operatorDecorationType = vscode.window.createTextEditorDecorationType({
     color: '#007acc', // Blue
@@ -722,11 +820,48 @@ function initializeDecorations() {
     color: '#a0a0a0' // Neutral gray
   });
 
-  // Create multiple decoration types for different parentheses pairs
-  const colors = ['#ffcc02', '#4ecdc4', '#45b7d1', '#96ceb4', '#feca57', '#9b59b6'];
-  for (let i = 0; i < colors.length; i++) {
+  // Create rainbow parentheses decorations
+  if (enableRainbowBrackets) {
+    // Enhanced rainbow colors with better contrast and visibility
+    const rainbowColors = [
+      '#ff6b6b', // Red
+      '#4ecdc4', // Teal
+      '#45b7d1', // Blue
+      '#a8e6cf', // Light Green
+      '#ffd93d', // Yellow
+      '#ff8b94', // Pink
+      '#b4a7d6', // Light Purple
+      '#f7b731', // Orange
+      '#5f6caf', // Indigo
+      '#2ed573', // Green
+      '#ff9ff3', // Magenta
+      '#70a1ff', // Light Blue
+      '#ff7675', // Coral
+      '#74b9ff', // Sky Blue
+      '#fd79a8', // Hot Pink
+      '#fdcb6e', // Peach
+      '#6c5ce7', // Purple
+      '#00b894', // Emerald
+      '#e17055', // Burnt Orange
+      '#0984e3'  // Royal Blue
+    ];
+    
+    // Use only the number of colors specified in configuration
+    const colorsToUse = rainbowColors.slice(0, Math.min(rainbowBracketColors, rainbowColors.length));
+    
+    for (let i = 0; i < colorsToUse.length; i++) {
+      parenDecorationTypes.push(vscode.window.createTextEditorDecorationType({
+        color: colorsToUse[i],
+        fontWeight: 'bold',
+        // Add subtle border for better visibility
+        border: `1px solid ${colorsToUse[i]}`,
+        borderRadius: '2px'
+      }));
+    }
+  } else {
+    // Fallback to simple parentheses highlighting if rainbow is disabled
     parenDecorationTypes.push(vscode.window.createTextEditorDecorationType({
-      color: colors[i], // Text color instead of background
+      color: '#ffcc02',
       fontWeight: 'bold'
     }));
   }
@@ -1247,6 +1382,28 @@ function analyzeAndSuggestFixes(query: string): QueryFix[] {
     fixes.push({
       description: `Normalize operator case to uppercase${lineNumber ? ` - Line ${lineNumber}` : ''}`,
       apply: (text: string) => text.replace(/\b(and|or|not|andany|near|within)\b/gi, match => match.toUpperCase()),
+      lineNumber
+    });
+  }
+
+  // Fix 7: Detect improper nested/mixed proximity operators
+  const nestedProximityPattern = /\([^()]*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)[^()]*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)[^()]*\)/gi;
+  const mixedOperatorPattern = /\([^()]*(?:AND|OR)[^()]*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)[^()]*\)/gi;
+  
+  if (nestedProximityPattern.test(query)) {
+    const lineNumber = findLineNumber(nestedProximityPattern);
+    fixes.push({
+      description: `⚠️ Syntax Warning: Multiple proximity operators inside parentheses may cause unexpected results${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text, // No auto-fix - user needs to restructure manually
+      lineNumber
+    });
+  }
+  
+  if (mixedOperatorPattern.test(query)) {
+    const lineNumber = findLineNumber(mixedOperatorPattern);
+    fixes.push({
+      description: `⚠️ Syntax Warning: Mixing boolean (AND/OR) and proximity operators in parentheses creates ambiguous precedence${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text, // No auto-fix - user needs to restructure manually
       lineNumber
     });
   }
@@ -1813,3 +1970,482 @@ export function deactivate() {
     decorationType.dispose();
   });
 }
+
+// Query Tree Provider Classes
+interface QueryNode {
+  type: 'root' | 'group' | 'operator' | 'term' | 'phrase' | 'error' | 'warning';
+  label: string;
+  children?: QueryNode[];
+  position?: { start: number; end: number };
+  description?: string;
+  iconPath?: vscode.ThemeIcon;
+}
+
+class QueryTreeProvider implements vscode.TreeDataProvider<QueryNode> {
+  private _onDidChangeTreeData: vscode.EventEmitter<QueryNode | undefined | null | void> = new vscode.EventEmitter<QueryNode | undefined | null | void>();
+  readonly onDidChangeTreeData: vscode.Event<QueryNode | undefined | null | void> = this._onDidChangeTreeData.event;
+
+  private queryNodes: QueryNode[] = [];
+  private customQueryMode = false;
+  private customQueryLineNumber = -1;
+  private customQueryText = '';
+  private customQueryStartOffset = 0;
+
+  refresh(): void {
+    this.customQueryMode = false; // Reset custom mode when refreshing
+    this.parseCurrentQuery();
+    this._onDidChangeTreeData.fire();
+  }
+
+  getTreeItem(element: QueryNode): vscode.TreeItem {
+    const treeItem = new vscode.TreeItem(element.label, element.children ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
+    
+    // Set colorful icons and enhanced labels based on node type
+    switch (element.type) {
+      case 'root':
+        treeItem.iconPath = new vscode.ThemeIcon('symbol-structure', new vscode.ThemeColor('symbolIcon.structureForeground'));
+        treeItem.label = `🌳 ${element.label}`;
+        break;
+      case 'group':
+        treeItem.iconPath = new vscode.ThemeIcon('bracket', new vscode.ThemeColor('symbolIcon.namespaceForeground'));
+        treeItem.label = `📦 ${element.label}`;
+        break;
+      case 'operator':
+        // Color-code different operators
+        const operatorColors = this.getOperatorIconAndColor(element.label);
+        treeItem.iconPath = new vscode.ThemeIcon(operatorColors.icon, operatorColors.color);
+        treeItem.label = this.colorizeOperatorLabel(element.label);
+        treeItem.contextValue = 'operator';
+        break;
+      case 'term':
+        // Check if it's a wildcard term and style accordingly
+        if (element.label.includes('*')) {
+          treeItem.iconPath = new vscode.ThemeIcon('search', new vscode.ThemeColor('symbolIcon.keywordForeground'));
+          treeItem.label = `🔍 ${element.label}`;
+          if (element.label.startsWith('*')) {
+            treeItem.label = `⚡🔍 ${element.label}`; // Leading wildcard gets lightning bolt for performance warning
+          }
+        } else {
+          treeItem.iconPath = new vscode.ThemeIcon('symbol-string', new vscode.ThemeColor('symbolIcon.stringForeground'));
+          treeItem.label = `📝 ${element.label}`;
+        }
+        break;
+      case 'phrase':
+        treeItem.iconPath = new vscode.ThemeIcon('quote', new vscode.ThemeColor('symbolIcon.stringForeground'));
+        treeItem.label = `💬 ${element.label}`;
+        break;
+      case 'error':
+        treeItem.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('errorForeground'));
+        treeItem.label = `❌ ${element.label}`;
+        break;
+      case 'warning':
+        treeItem.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('warningForeground'));
+        treeItem.label = `⚠️ ${element.label}`;
+        break;
+    }
+
+    if (element.description) {
+      treeItem.description = element.description;
+    }
+
+    if (element.position) {
+      treeItem.contextValue = 'queryNode';
+      treeItem.command = {
+        command: 'dtsearchsyntaxhelper.jumpToQueryNode',
+        title: 'Jump to Query Node',
+        arguments: [element.position]
+      };
+    }
+
+    return treeItem;
+  }
+
+  getChildren(element?: QueryNode): Thenable<QueryNode[]> {
+    if (!element) {
+      return Promise.resolve(this.queryNodes);
+    }
+    return Promise.resolve(element.children || []);
+  }
+
+  private parseCurrentQuery(): void {
+    // Skip parsing if we're in custom query mode
+    if (this.customQueryMode) {
+      return;
+    }
+
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      this.queryNodes = [];
+      return;
+    }
+
+    const document = editor.document;
+    if (document.languageId !== 'dtsearch' && !document.fileName.endsWith('.dt')) {
+      this.queryNodes = [];
+      return;
+    }
+
+    const text = document.getText();
+    if (!text.trim()) {
+      this.queryNodes = [];
+      return;
+    }
+
+    this.queryNodes = this.parseQuery(text);
+  }
+
+  private parseQuery(text: string): QueryNode[] {
+    const lines = text.split('\n');
+    const queryNodes: QueryNode[] = [];
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      const line = lines[lineIndex].trim();
+      
+      // Skip comments and empty lines
+      if (!line || line.startsWith('//')) {
+        continue;
+      }
+
+      const lineStart = text.indexOf(lines[lineIndex]);
+      const parsedLine = this.parseQueryLine(line, lineStart);
+      if (parsedLine) {
+        queryNodes.push(parsedLine);
+      }
+    }
+
+    return queryNodes;
+  }
+
+  private parseQueryLine(query: string, offset: number): QueryNode | null {
+    if (!query.trim()) {
+      return null;
+    }
+
+    const rootNode: QueryNode = {
+      type: 'root',
+      label: `${this.customQueryMode ? 'Custom ' : ''}Query: ${query.length > 30 ? query.substring(0, 30) + '...' : query}`,
+      children: [],
+      position: { start: offset, end: offset + query.length }
+    };
+
+    try {
+      const tokens = this.tokenizeQuery(query, offset);
+      rootNode.children = this.buildQueryTree(tokens);
+      
+      // Add error detection
+      this.detectErrors(rootNode, query, offset);
+      
+    } catch (error) {
+      rootNode.children = [{
+        type: 'error',
+        label: 'Parse Error',
+        description: 'Could not parse query structure',
+        position: { start: offset, end: offset + query.length }
+      }];
+    }
+
+    return rootNode;
+  }
+
+  private tokenizeQuery(query: string, offset: number): Array<{type: string, value: string, start: number, end: number}> {
+    const tokens: Array<{type: string, value: string, start: number, end: number}> = [];
+    let i = 0;
+    
+    while (i < query.length) {
+      // Skip whitespace
+      while (i < query.length && /\s/.test(query[i])) {
+        i++;
+      }
+      
+      if (i >= query.length) {
+        break;
+      }
+      
+      const start = offset + i;
+      let value = '';
+      let type = 'term';
+      
+      // Handle parentheses
+      if (query[i] === '(' || query[i] === ')') {
+        value = query[i];
+        type = 'paren';
+        i++;
+      }
+      // Handle quoted phrases
+      else if (query[i] === '"') {
+        let j = i + 1;
+        value = '"';
+        while (j < query.length && query[j] !== '"') {
+          value += query[j];
+          j++;
+        }
+        if (j < query.length) {
+          value += '"'; // Add closing quote
+          j++;
+        }
+        type = 'phrase';
+        i = j;
+      }
+      // Handle operators and terms
+      else {
+        // Read the word
+        let j = i;
+        while (j < query.length && /[a-zA-Z0-9*\/]/.test(query[j])) {
+          j++;
+        }
+        value = query.substring(i, j);
+        
+        // Check if it's an operator (must be standalone word)
+        const upperValue = value.toUpperCase();
+        if (/^(AND|OR|NOT|NEAR|WITHIN|W\/\d+|PRE\/\d+)$/.test(upperValue)) {
+          // Verify it's a standalone word by checking boundaries
+          const beforeChar = i > 0 ? query[i - 1] : ' ';
+          const afterChar = j < query.length ? query[j] : ' ';
+          
+          if (/\s|\(|\)|^/.test(beforeChar) && /\s|\(|\)|$/.test(afterChar)) {
+            type = 'operator';
+          } else {
+            type = 'term'; // It's part of a larger word
+          }
+        } else if (value.includes('*')) {
+          type = 'wildcard';
+        }
+        
+        i = j;
+      }
+      
+      if (value) {
+        const end = start + value.length;
+        tokens.push({ type, value, start, end });
+      }
+    }
+
+    return tokens;
+  }
+
+  private buildQueryTree(tokens: Array<{type: string, value: string, start: number, end: number}>): QueryNode[] {
+    const nodes: QueryNode[] = [];
+    let i = 0;
+
+    while (i < tokens.length) {
+      const token = tokens[i];
+
+      if (token.type === 'paren' && token.value === '(') {
+        // Find matching closing parenthesis
+        let parenCount = 1;
+        let j = i + 1;
+        const groupTokens: Array<{type: string, value: string, start: number, end: number}> = [];
+
+        while (j < tokens.length && parenCount > 0) {
+          if (tokens[j].value === '(') {
+            parenCount++;
+          } else if (tokens[j].value === ')') {
+            parenCount--;
+          }
+
+          if (parenCount > 0) {
+            groupTokens.push(tokens[j]);
+          }
+          j++;
+        }
+
+        const groupNode: QueryNode = {
+          type: 'group',
+          label: `Group (${groupTokens.length} items)`,
+          children: this.buildQueryTree(groupTokens),
+          position: { start: token.start, end: j > i ? tokens[j-1].end : token.end }
+        };
+
+        nodes.push(groupNode);
+        i = j;
+      } else if (token.type === 'operator') {
+        nodes.push({
+          type: 'operator',
+          label: token.value,
+          position: { start: token.start, end: token.end },
+          description: this.getOperatorDescription(token.value)
+        });
+        i++;
+      } else if (token.type === 'phrase') {
+        nodes.push({
+          type: 'phrase',
+          label: token.value,
+          position: { start: token.start, end: token.end },
+          description: 'Exact phrase search'
+        });
+        i++;
+      } else if (token.type === 'wildcard') {
+        nodes.push({
+          type: 'warning',
+          label: token.value,
+          position: { start: token.start, end: token.end },
+          description: 'Wildcard search (may impact performance)'
+        });
+        i++;
+      } else {
+        nodes.push({
+          type: 'term',
+          label: token.value,
+          position: { start: token.start, end: token.end },
+          description: 'Search term'
+        });
+        i++;
+      }
+    }
+
+    return nodes;
+  }
+
+  private getOperatorDescription(operator: string): string {
+    switch (operator.toUpperCase()) {
+      case 'AND': return 'Both terms must be present';
+      case 'OR': return 'Either term can be present';
+      case 'NOT': return 'Exclude documents with this term';
+      case 'NEAR': return 'Terms must be near each other';
+      case 'WITHIN': return 'Terms within specified scope';
+      default:
+        if (operator.match(/W\/\d+/i)) {
+          return `Terms within ${operator.split('/')[1]} words`;
+        }
+        if (operator.match(/PRE\/\d+/i)) {
+          return `First term precedes second by ${operator.split('/')[1]} words`;
+        }
+        return operator;
+    }
+  }
+
+  private detectErrors(rootNode: QueryNode, query: string, offset: number): void {
+    const errors: QueryNode[] = [];
+
+    // Check for unbalanced parentheses
+    const parenBalance = this.getParenthesesBalance(query);
+    if (parenBalance !== 0) {
+      errors.push({
+        type: 'error',
+        label: 'Unbalanced Parentheses',
+        description: `${Math.abs(parenBalance)} ${parenBalance > 0 ? 'missing closing' : 'extra closing'} parentheses`,
+        position: { start: offset, end: offset + query.length }
+      });
+    }
+
+    // Check for unbalanced quotes
+    const quoteBalance = this.getQuoteBalance(query);
+    if (quoteBalance !== 0) {
+      errors.push({
+        type: 'error',
+        label: 'Unbalanced Quotes',
+        description: 'Missing closing quote',
+        position: { start: offset, end: offset + query.length }
+      });
+    }
+
+    // Check for performance issues
+    if (query.includes('*') && query.match(/\*\w+/)) {
+      errors.push({
+        type: 'warning',
+        label: 'Leading Wildcard',
+        description: 'Leading wildcards can be very slow',
+        position: { start: offset, end: offset + query.length }
+      });
+    }
+
+    if (errors.length > 0) {
+      rootNode.children = [...(rootNode.children || []), ...errors];
+    }
+  }
+
+  private getParenthesesBalance(text: string): number {
+    let balance = 0;
+    for (const char of text) {
+      if (char === '(') {
+        balance++;
+      } else if (char === ')') {
+        balance--;
+      }
+    }
+    return balance;
+  }
+
+  private getQuoteBalance(text: string): number {
+    const quotes = (text.match(/"/g) || []).length;
+    return quotes % 2;
+  }
+
+  private getOperatorIconAndColor(operatorText: string): {icon: string, color: vscode.ThemeColor} {
+    const operator = operatorText.toUpperCase().trim();
+    
+    switch (operator) {
+      case 'AND':
+        return {
+          icon: 'symbol-operator',
+          color: new vscode.ThemeColor('symbolIcon.operatorForeground')
+        };
+      case 'OR':
+        return {
+          icon: 'git-branch',
+          color: new vscode.ThemeColor('gitDecoration.modifiedResourceForeground')
+        };
+      case 'NOT':
+        return {
+          icon: 'circle-slash',
+          color: new vscode.ThemeColor('errorForeground')
+        };
+      default:
+        // Proximity operators (W/, PRE/, NEAR)
+        if (operator.includes('W/') || operator.includes('PRE/') || operator.includes('NEAR')) {
+          return {
+            icon: 'arrow-both',
+            color: new vscode.ThemeColor('symbolIcon.keywordForeground')
+          };
+        }
+        return {
+          icon: 'symbol-operator',
+          color: new vscode.ThemeColor('symbolIcon.operatorForeground')
+        };
+    }
+  }
+
+  private colorizeOperatorLabel(operatorText: string): string {
+    const operator = operatorText.toUpperCase().trim();
+    
+    switch (operator) {
+      case 'AND':
+        return `🔗 ${operatorText}`;
+      case 'OR':
+        return `🌿 ${operatorText}`;
+      case 'NOT':
+        return `❌ ${operatorText}`;
+      default:
+        // Proximity operators
+        if (operator.includes('W/') || operator.includes('PRE/') || operator.includes('NEAR')) {
+          return `↔️ ${operatorText}`;
+        }
+        return `⚙️ ${operatorText}`;
+    }
+  }
+
+  setCustomQuery(queryText: string, lineNumber?: number, startOffset?: number): void {
+    // Parse the custom query and update the tree
+    this.customQueryMode = true;
+    this.customQueryText = queryText;
+    this.customQueryLineNumber = lineNumber || -1;
+    this.customQueryStartOffset = startOffset || 0;
+    this.queryNodes = this.parseQuery(queryText);
+    this._onDidChangeTreeData.fire();
+  }
+
+  isInCustomQueryMode(): boolean {
+    return this.customQueryMode;
+  }
+
+  getCustomLineInfo(): {lineNumber: number, queryText: string, startOffset: number} {
+    return {
+      lineNumber: this.customQueryLineNumber,
+      queryText: this.customQueryText,
+      startOffset: this.customQueryStartOffset
+    };
+  }
+}
+
+// Global query tree provider instance
+let queryTreeProvider: QueryTreeProvider;
