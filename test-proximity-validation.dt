@@ -89,6 +89,14 @@ document AND contract or agreement
 (contract NEAR agreement W/10 document)
 (apple w/10 banana w/5 cherry w/3 grape)
 
+// Cross-group nested proximity (SHOULD SHOW ERROR):
+(dog OR cat OR bird) W/5 (yard OR garden OR park W/10 man)
+(contract OR agreement) W/15 (legal OR binding PRE/5 document)
+(term1 PRE/3 term2) W/10 (result OR outcome W/5 final)
+
+// User's specific test case:
+(dog OR cat OR bird) W/5 (yard OR garden OR park W/10 man)
+
 // Mixed boolean and proximity operators (ambiguous precedence):
 (dog OR cat OR bird) AND (adoption OR rescue W/10 shelter)
 (apple OR banana W/5 tree)

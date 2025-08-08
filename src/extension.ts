@@ -1415,10 +1415,23 @@ function analyzeAndSuggestFixes(query: string): QueryFix[] {
   const nestedProximityPattern = /\([^()]*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)[^()]*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)[^()]*\)/gi;
   const mixedOperatorPattern = /\([^()]*(?:AND|OR)[^()]*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)[^()]*\)/gi;
   
+  // Fix 7a: Detect proximity operators spanning groups with inner proximity operators
+  const crossGroupProximityPattern = /\([^()]*\)\s*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)\s*\([^()]*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)[^()]*\)/gi;
+  const reverseGroupProximityPattern = /\([^()]*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)[^()]*\)\s*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)\s*\([^()]*\)/gi;
+  
   if (nestedProximityPattern.test(query)) {
     const lineNumber = findLineNumber(nestedProximityPattern);
     fixes.push({
       description: `⚠️ Syntax Warning: Multiple proximity operators inside parentheses may cause unexpected results${lineNumber ? ` - Line ${lineNumber}` : ''}`,
+      apply: (text: string) => text, // No auto-fix - user needs to restructure manually
+      lineNumber
+    });
+  }
+  
+  if (crossGroupProximityPattern.test(query) || reverseGroupProximityPattern.test(query)) {
+    const lineNumber = findLineNumber(crossGroupProximityPattern) || findLineNumber(reverseGroupProximityPattern);
+    fixes.push({
+      description: `❌ Syntax Error: Nested proximity operators detected - proximity operator between groups with inner proximity operator creates ambiguous scope${lineNumber ? ` - Line ${lineNumber}` : ''}`,
       apply: (text: string) => text, // No auto-fix - user needs to restructure manually
       lineNumber
     });
@@ -1835,6 +1848,40 @@ function validateSyntax(document: vscode.TextDocument) {
       });
     }
 
+    // Pattern 2b: Cross-group proximity operators (NEW)
+    const crossGroupProximity = line.match(/\([^()]*\)\s*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)\s*\([^()]*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)[^()]*\)/gi);
+    const reverseGroupProximity = line.match(/\([^()]*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)[^()]*\)\s*(?:W\/\d+|PRE\/\d+|NEAR|WITHIN)\s*\([^()]*\)/gi);
+    
+    if (crossGroupProximity) {
+      crossGroupProximity.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Nested proximity error: "${match}" has proximity operator between groups with inner proximity operator. This creates ambiguous scope and may not work as expected.`,
+          vscode.DiagnosticSeverity.Error
+        );
+        diagnostic.code = 'cross-group-proximity-nesting';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+    
+    if (reverseGroupProximity) {
+      reverseGroupProximity.forEach(match => {
+        const startIndex = line.indexOf(match);
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, startIndex + match.length);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Nested proximity error: "${match}" has proximity operator between groups with inner proximity operator. This creates ambiguous scope and may not work as expected.`,
+          vscode.DiagnosticSeverity.Error
+        );
+        diagnostic.code = 'cross-group-proximity-nesting';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      });
+    }
+
     // Pattern 3: Multiple proximity operators in sequence without clear grouping
     const multipleProximity = line.match(/\b\w+\s+(W\/\d+|PRE\/\d+|NEAR|WITHIN)\s+\w+\s+(W\/\d+|PRE\/\d+|NEAR|WITHIN)\s+\w+/gi);
     if (multipleProximity) {
@@ -1996,12 +2043,12 @@ export function deactivate() {
   });
 }
 
-// Operator Flow Diagram Function
+// Simplified Tree-Based Flow Diagram Function
 async function showOperatorFlowDiagram(queryText: string) {
-  const flowSteps = analyzeQueryFlow(queryText);
-  const flowDiagram = generateFlowDiagram(flowSteps);
+  const treeAnalysis = analyzeQueryTree(queryText);
+  const flowDiagram = generateTreeFlowDiagram(treeAnalysis);
   
-  // Create a new untitled document to show the flow diagram
+  // Create a new untitled document to show the tree flow diagram
   const document = await vscode.workspace.openTextDocument({
     content: flowDiagram,
     language: 'markdown'
@@ -2013,328 +2060,505 @@ async function showOperatorFlowDiagram(queryText: string) {
   });
 }
 
-function analyzeQueryFlow(query: string): FlowStep[] {
-  const steps: FlowStep[] = [];
-  const tokens = tokenizeForFlow(query);
+function analyzeQueryTree(query: string): TreeAnalysis {
+  const rootNode = parseQueryToTree(query.trim());
+  const performance = analyzePerformance(rootNode, query);
+  const suggestions = generateSuggestions(rootNode, query);
   
-  // Add initial step
-  steps.push({
-    step: 1,
-    operation: 'Parse Query',
-    input: query,
-    output: 'Tokenized components',
-    description: 'Break down query into operators, terms, and groups',
-    type: 'parse'
-  });
-  
-  // Analyze operator precedence and execution order
-  let stepCounter = 2;
-  const precedenceGroups = groupByPrecedence(tokens);
-  
-  for (const group of precedenceGroups) {
-    const step = analyzeOperatorGroup(group, stepCounter++);
-    steps.push(step);
-  }
-  
-  // Add final step
-  steps.push({
-    step: stepCounter,
-    operation: 'Return Results',
-    input: 'Combined result sets',
-    output: 'Final document matches',
-    description: 'Present final search results to user',
-    type: 'result'
-  });
-  
-  return steps;
+  return {
+    rootNode,
+    performance,
+    suggestions,
+    originalQuery: query
+  };
 }
 
-function tokenizeForFlow(query: string): FlowToken[] {
-  const tokens: FlowToken[] = [];
-  let i = 0;
-  
-  while (i < query.length) {
-    // Skip whitespace
-    while (i < query.length && /\s/.test(query[i])) {
-      i++;
-    }
-    
-    if (i >= query.length) {
-      break;
-    }
-    
-    let value = '';
-    let type: 'term' | 'operator' | 'group_start' | 'group_end' | 'phrase' = 'term';
-    
-    // Handle parentheses
-    if (query[i] === '(') {
-      value = '(';
-      type = 'group_start';
-      i++;
-    } else if (query[i] === ')') {
-      value = ')';
-      type = 'group_end';
-      i++;
-    }
-    // Handle quoted phrases
-    else if (query[i] === '"') {
-      let j = i + 1;
-      value = '"';
-      while (j < query.length && query[j] !== '"') {
-        value += query[j];
-        j++;
-      }
-      if (j < query.length) {
-        value += '"';
-        j++;
-      }
-      type = 'phrase';
-      i = j;
-    }
-    // Handle operators and terms
-    else {
-      let j = i;
-      while (j < query.length && /[a-zA-Z0-9*\/]/.test(query[j])) {
-        j++;
-      }
-      value = query.substring(i, j);
-      
-      const upperValue = value.toUpperCase();
-      if (/^(AND|OR|NOT|NEAR|WITHIN|W\/\d+|PRE\/\d+)$/.test(upperValue)) {
-        type = 'operator';
-      }
-      
-      i = j;
-    }
-    
-    if (value) {
-      tokens.push({ value, type, precedence: getOperatorPrecedence(value) });
-    }
-  }
-  
-  return tokens;
-}
-
-function getOperatorPrecedence(value: string): number {
-  const upperValue = value.toUpperCase();
-  
-  // Higher numbers = higher precedence (executed first)
-  if (upperValue === 'NOT') {
-    return 4;
-  }
-  if (/^(W\/\d+|PRE\/\d+|NEAR|WITHIN)$/.test(upperValue)) {
-    return 3;
-  }
-  if (upperValue === 'AND') {
-    return 2;
-  }
-  if (upperValue === 'OR') {
-    return 1;
-  }
-  
-  return 0; // Terms, phrases, groups
-}
-
-function groupByPrecedence(tokens: FlowToken[]): FlowToken[][] {
-  const groups: FlowToken[][] = [];
-  let currentGroup: FlowToken[] = [];
-  let currentPrecedence = -1;
-  
-  for (const token of tokens) {
-    if (token.type === 'operator' && token.precedence !== currentPrecedence) {
-      if (currentGroup.length > 0) {
-        groups.push([...currentGroup]);
-      }
-      currentGroup = [token];
-      currentPrecedence = token.precedence;
-    } else {
-      currentGroup.push(token);
-    }
-  }
-  
-  if (currentGroup.length > 0) {
-    groups.push(currentGroup);
-  }
-  
-  // Sort by precedence (highest first)
-  groups.sort((a, b) => {
-    const aPrecedence = Math.max(...a.filter(t => t.type === 'operator').map(t => t.precedence));
-    const bPrecedence = Math.max(...b.filter(t => t.type === 'operator').map(t => t.precedence));
-    return bPrecedence - aPrecedence;
-  });
-  
-  return groups;
-}
-
-function analyzeOperatorGroup(group: FlowToken[], stepNumber: number): FlowStep {
-  const operators = group.filter(token => token.type === 'operator');
-  const mainOperator = operators[0];
-  
-  if (!mainOperator) {
+function parseQueryToTree(query: string): AnalysisNode {
+  if (!query.trim()) {
     return {
-      step: stepNumber,
-      operation: 'Process Terms',
-      input: group.map(t => t.value).join(' '),
-      output: 'Document matches',
-      description: 'Find documents containing the specified terms',
-      type: 'search'
+      type: 'empty',
+      content: '(empty query)',
+      analysis: 'No query provided',
+      impact: 'none',
+      children: []
     };
   }
-  
-  const operatorType = mainOperator.value.toUpperCase();
-  
-  switch (operatorType) {
-    case 'NOT':
-      return {
-        step: stepNumber,
-        operation: 'NOT Operation',
-        input: group.map(t => t.value).join(' '),
-        output: 'Excluded documents',
-        description: 'Remove documents matching the NOT term from results',
-        type: 'boolean',
-        performance: 'Moderate - Exclusion operation'
-      };
-      
-    case 'AND':
-      return {
-        step: stepNumber,
-        operation: 'AND Operation',
-        input: group.map(t => t.value).join(' '),
-        output: 'Intersection of results',
-        description: 'Find documents containing ALL specified terms',
-        type: 'boolean',
-        performance: 'Fast - Intersection operation'
-      };
-      
-    case 'OR':
-      return {
-        step: stepNumber,
-        operation: 'OR Operation',
-        input: group.map(t => t.value).join(' '),
-        output: 'Union of results',
-        description: 'Find documents containing ANY of the specified terms',
-        type: 'boolean',
-        performance: 'Fast - Union operation'
-      };
-      
-    default:
-      if (/^W\/\d+$/.test(operatorType)) {
-        const distance = operatorType.substring(2);
-        return {
-          step: stepNumber,
-          operation: `Proximity Search (W/${distance})`,
-          input: group.map(t => t.value).join(' '),
-          output: 'Nearby term matches',
-          description: `Find documents where terms appear within ${distance} words of each other`,
-          type: 'proximity',
-          performance: `Moderate - Proximity scanning within ${distance} words`
-        };
-      } else if (/^PRE\/\d+$/.test(operatorType)) {
-        const distance = operatorType.substring(4);
-        return {
-          step: stepNumber,
-          operation: `Precedes Search (PRE/${distance})`,
-          input: group.map(t => t.value).join(' '),
-          output: 'Ordered term matches',
-          description: `Find documents where first term precedes second term within ${distance} words`,
-          type: 'proximity',
-          performance: `Moderate - Ordered proximity scanning within ${distance} words`
-        };
-      }
-      
-      return {
-        step: stepNumber,
-        operation: 'Unknown Operation',
-        input: group.map(t => t.value).join(' '),
-        output: 'Results',
-        description: 'Process unknown operator',
-        type: 'other'
-      };
+
+  // Handle parentheses groups
+  if (query.includes('(') && query.includes(')')) {
+    return parseGroupedQuery(query);
   }
+
+  // Handle OR operations (lowest precedence)
+  if (query.includes(' OR ')) {
+    return parseOrOperation(query);
+  }
+
+  // Handle AND operations
+  if (query.includes(' AND ')) {
+    return parseAndOperation(query);
+  }
+
+  // Handle proximity operations
+  const proximityMatch = query.match(/(.+?)\s+(W\/\d+|PRE\/\d+|NEAR\/\d+)\s+(.+)/);
+  if (proximityMatch) {
+    return parseProximityOperation(query, proximityMatch);
+  }
+
+  // Handle NOT operations
+  if (query.includes(' NOT ')) {
+    return parseNotOperation(query);
+  }
+
+  // Handle phrase searches
+  if (query.includes('"')) {
+    return parsePhraseSearch(query);
+  }
+
+  // Simple term
+  return {
+    type: 'term',
+    content: query.trim(),
+    analysis: `Search for documents containing "${query.trim()}"`,
+    impact: 'fast',
+    children: []
+  };
 }
 
-function generateFlowDiagram(steps: FlowStep[]): string {
-  let diagram = '# dtSearch Query Execution Flow Diagram\n\n';
-  diagram += `Generated on: ${new Date().toLocaleString()}\n\n`;
-  diagram += '## Execution Steps\n\n';
+function parseGroupedQuery(query: string): AnalysisNode {
+  const groups: AnalysisNode[] = [];
+  let currentPos = 0;
+  let depth = 0;
+  let groupStart = -1;
   
-  // Add execution order explanation
-  diagram += '### Operator Precedence (Execution Order)\n';
-  diagram += '1. **NOT** (Highest precedence)\n';
-  diagram += '2. **Proximity Operators** (W/, PRE/, NEAR)\n';
-  diagram += '3. **AND**\n';
-  diagram += '4. **OR** (Lowest precedence)\n\n';
-  
-  // Create flow diagram
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i];
-    const icon = getFlowIcon(step.type);
-    
-    diagram += `### ${icon} Step ${step.step}: ${step.operation}\n\n`;
-    diagram += `**Input:** \`${step.input}\`\n\n`;
-    diagram += `**Output:** ${step.output}\n\n`;
-    diagram += `**Description:** ${step.description}\n\n`;
-    
-    if (step.performance) {
-      diagram += `**Performance:** ${step.performance}\n\n`;
-    }
-    
-    // Add arrow to next step (except for last step)
-    if (i < steps.length - 1) {
-      diagram += '```\n';
-      diagram += '    ↓\n';
-      diagram += '```\n\n';
+  for (let i = 0; i < query.length; i++) {
+    if (query[i] === '(') {
+      if (depth === 0) {
+        // Process any content before this group
+        if (i > currentPos) {
+          const beforeGroup = query.substring(currentPos, i).trim();
+          if (beforeGroup) {
+            groups.push(parseQueryToTree(beforeGroup));
+          }
+        }
+        groupStart = i + 1;
+      }
+      depth++;
+    } else if (query[i] === ')') {
+      depth--;
+      if (depth === 0) {
+        // Process the group content
+        const groupContent = query.substring(groupStart, i);
+        const groupNode = parseQueryToTree(groupContent);
+        groupNode.type = 'group';
+        groupNode.content = `(${groupContent})`;
+        groupNode.analysis = `Grouped operation: ${groupNode.analysis}`;
+        groups.push(groupNode);
+        currentPos = i + 1;
+      }
     }
   }
   
-  // Add performance summary
-  diagram += '\n## Performance Analysis\n\n';
-  const performanceSteps = steps.filter(s => s.performance);
-  if (performanceSteps.length > 0) {
-    for (const step of performanceSteps) {
-      diagram += `- **${step.operation}:** ${step.performance}\n`;
+  // Process any remaining content
+  if (currentPos < query.length) {
+    const remaining = query.substring(currentPos).trim();
+    if (remaining) {
+      groups.push(parseQueryToTree(remaining));
     }
-  } else {
-    diagram += 'No specific performance considerations detected.\n';
+  }
+
+  if (groups.length === 1) {
+    return groups[0];
+  }
+
+  return {
+    type: 'complex',
+    content: query,
+    analysis: 'Complex query with multiple groups and operations',
+    impact: 'variable',
+    children: groups
+  };
+}
+
+function parseOrOperation(query: string): AnalysisNode {
+  const parts = query.split(' OR ').map(part => part.trim());
+  const children = parts.map(part => parseQueryToTree(part));
+  
+  return {
+    type: 'or',
+    content: 'OR Operation',
+    analysis: `Find documents matching ANY of ${parts.length} conditions. Broader results, slower with many terms.`,
+    impact: parts.length > 3 ? 'slow' : 'moderate',
+    children
+  };
+}
+
+function parseAndOperation(query: string): AnalysisNode {
+  const parts = query.split(' AND ').map(part => part.trim());
+  const children = parts.map(part => parseQueryToTree(part));
+  
+  return {
+    type: 'and',
+    content: 'AND Operation',
+    analysis: `Find documents matching ALL of ${parts.length} conditions. More precise results, generally faster.`,
+    impact: 'fast',
+    children
+  };
+}
+
+function parseProximityOperation(query: string, match: RegExpMatchArray): AnalysisNode {
+  const [, leftTerm, operator, rightTerm] = match;
+  const distance = operator.match(/\d+/)?.[0] || '0';
+  
+  return {
+    type: 'proximity',
+    content: `${operator} Operation`,
+    analysis: `Find "${leftTerm.trim()}" within ${distance} words of "${rightTerm.trim()}". Precision depends on distance.`,
+    impact: parseInt(distance) > 20 ? 'slow' : 'moderate',
+    children: [
+      parseQueryToTree(leftTerm),
+      parseQueryToTree(rightTerm)
+    ]
+  };
+}
+
+function parseNotOperation(query: string): AnalysisNode {
+  const parts = query.split(' NOT ').map(part => part.trim());
+  const children = parts.map(part => parseQueryToTree(part));
+  
+  return {
+    type: 'not',
+    content: 'NOT Operation',
+    analysis: `Exclude documents containing the NOT term. Can significantly slow searches.`,
+    impact: 'slow',
+    children
+  };
+}
+
+function parsePhraseSearch(query: string): AnalysisNode {
+  const phrases = query.match(/"[^"]+"/g) || [];
+  const nonPhrases = query.replace(/"[^"]+"/g, '').trim();
+  
+  const children: AnalysisNode[] = [];
+  
+  phrases.forEach(phrase => {
+    children.push({
+      type: 'phrase',
+      content: phrase,
+      analysis: `Exact phrase search: ${phrase}. Fast and precise.`,
+      impact: 'fast',
+      children: []
+    });
+  });
+  
+  if (nonPhrases) {
+    children.push(parseQueryToTree(nonPhrases));
   }
   
-  // Add tips
-  diagram += '\n## Optimization Tips\n\n';
-  diagram += '- Use **AND** operations when possible (faster than OR with many terms)\n';
-  diagram += '- Limit **proximity ranges** (W/5 is faster than W/50)\n';
-  diagram += '- Place **most selective terms** first in AND operations\n';
-  diagram += '- Use **NOT** operators sparingly\n';
-  diagram += '- Consider **phrase searches** ("exact phrase") for better precision\n';
+  if (children.length === 1) {
+    return children[0];
+  }
+  
+  return {
+    type: 'mixed',
+    content: 'Mixed Phrase/Term Search',
+    analysis: 'Combination of phrase and term searches',
+    impact: 'moderate',
+    children
+  };
+}
+
+function analyzePerformance(node: AnalysisNode, originalQuery: string): PerformanceAnalysis {
+  let score = 100; // Start with perfect score
+  const issues: string[] = [];
+  const recommendations: string[] = [];
+  
+  function analyzeNode(n: AnalysisNode): void {
+    switch (n.impact) {
+      case 'slow':
+        score -= 30;
+        issues.push(`${n.content}: ${n.analysis}`);
+        break;
+      case 'moderate':
+        score -= 15;
+        break;
+      case 'fast':
+        break;
+      case 'none':
+        score -= 5;
+        break;
+    }
+    
+    if (n.children) {
+      n.children.forEach(child => analyzeNode(child));
+    }
+  }
+  
+  analyzeNode(node);
+  
+  // Generate recommendations based on analysis
+  if (originalQuery.includes(' NOT ')) {
+    recommendations.push('Consider using positive terms instead of NOT when possible');
+  }
+  
+  if (originalQuery.includes(' OR ') && originalQuery.split(' OR ').length > 4) {
+    recommendations.push('Large OR operations can be slow - consider narrowing your search');
+  }
+  
+  const proximityMatches = originalQuery.match(/W\/(\d+)/g);
+  if (proximityMatches) {
+    const largeDistances = proximityMatches.filter(match => {
+      const distance = parseInt(match.substring(2));
+      return distance > 20;
+    });
+    if (largeDistances.length > 0) {
+      recommendations.push('Large proximity distances (>20) can impact performance');
+    }
+  }
+  
+  if (!originalQuery.includes('"') && originalQuery.split(' ').length > 1) {
+    recommendations.push('Consider using phrase searches ("exact phrase") for better precision');
+  }
+  
+  return {
+    score: Math.max(0, score),
+    rating: score >= 80 ? 'Excellent' : score >= 60 ? 'Good' : score >= 40 ? 'Fair' : 'Poor',
+    issues,
+    recommendations
+  };
+}
+
+function generateSuggestions(node: AnalysisNode, originalQuery: string): string[] {
+  const suggestions: string[] = [];
+  
+  // Check for common optimization opportunities
+  if (originalQuery.includes('*') && originalQuery.indexOf('*') < 3) {
+    suggestions.push('Avoid wildcards at the beginning of terms (e.g., "*ing") as they are very slow');
+  }
+  
+  if (originalQuery.split(' OR ').length > 5) {
+    suggestions.push('Consider breaking large OR queries into multiple smaller searches');
+  }
+  
+  if (originalQuery.includes(' AND ') && originalQuery.includes(' OR ')) {
+    suggestions.push('Use parentheses to clarify operator precedence: (term1 OR term2) AND term3');
+  }
+  
+  if (!originalQuery.match(/W\/[1-9]/)) {
+    suggestions.push('Consider using proximity operators (W/5) to find related terms near each other');
+  }
+  
+  const words = originalQuery.toLowerCase().split(/\s+/).filter(w => 
+    !['and', 'or', 'not', 'w/', 'pre/', 'near'].some(op => w.includes(op))
+  );
+  
+  if (words.length > 10) {
+    suggestions.push('Very long queries can be slow - consider using more specific terms');
+  }
+  
+  return suggestions;
+}
+
+function generateTreeFlowDiagram(analysis: TreeAnalysis): string {
+  let diagram = '# dtSearch Query Tree Analysis\n\n';
+  diagram += `**Query:** \`${analysis.originalQuery}\`\n\n`;
+  diagram += `**Generated:** ${new Date().toLocaleString()}\n\n`;
+  
+  // Query Tree Section
+  diagram += '## 🌳 Query Structure Tree\n\n';
+  diagram += '```\n';
+  diagram += generateTreeVisualization(analysis.rootNode, 0);
+  diagram += '```\n\n';
+  
+  // Detailed Analysis Section
+  diagram += '## 🔍 Operation Analysis\n\n';
+  diagram += generateDetailedAnalysis(analysis.rootNode, 0);
+  
+  // Performance Summary
+  diagram += '\n## ⚡ Performance Summary\n\n';
+  diagram += `**Overall Score:** ${analysis.performance.score}/100 (${analysis.performance.rating})\n\n`;
+  
+  if (analysis.performance.issues.length > 0) {
+    diagram += '**Performance Issues:**\n';
+    analysis.performance.issues.forEach(issue => {
+      diagram += `- ⚠️ ${issue}\n`;
+    });
+    diagram += '\n';
+  }
+  
+  if (analysis.performance.recommendations.length > 0) {
+    diagram += '**Recommendations:**\n';
+    analysis.performance.recommendations.forEach(rec => {
+      diagram += `- 💡 ${rec}\n`;
+    });
+    diagram += '\n';
+  }
+  
+  // Optimization Suggestions
+  if (analysis.suggestions.length > 0) {
+    diagram += '## 🚀 Optimization Suggestions\n\n';
+    analysis.suggestions.forEach((suggestion, index) => {
+      diagram += `${index + 1}. ${suggestion}\n`;
+    });
+    diagram += '\n';
+  }
+  
+  // Query Execution Summary
+  diagram += '## 📊 Expected Execution\n\n';
+  diagram += generateExecutionSummary(analysis.rootNode);
   
   return diagram;
 }
 
-function getFlowIcon(type: string): string {
+function generateTreeVisualization(node: AnalysisNode, depth: number): string {
+  const indent = '  '.repeat(depth);
+  const icon = getTreeIcon(node.type, node.impact);
+  let result = `${indent}${icon} ${node.content}\n`;
+  
+  if (node.children && node.children.length > 0) {
+    node.children.forEach(child => {
+      result += generateTreeVisualization(child, depth + 1);
+    });
+  }
+  
+  return result;
+}
+
+function generateDetailedAnalysis(node: AnalysisNode, depth: number): string {
+  const indent = '  '.repeat(depth);
+  const icon = getTreeIcon(node.type, node.impact);
+  const impactBadge = getImpactBadge(node.impact);
+  
+  let result = `${indent}- ${icon} **${node.content}** ${impactBadge}\n`;
+  result += `${indent}  - ${node.analysis}\n`;
+  
+  if (node.children && node.children.length > 0) {
+    node.children.forEach(child => {
+      result += generateDetailedAnalysis(child, depth + 1);
+    });
+  }
+  
+  return result;
+}
+
+function generateExecutionSummary(node: AnalysisNode): string {
+  const termCount = countTerms(node);
+  const operatorCount = countOperators(node);
+  const groupCount = countGroups(node);
+  
+  let summary = `**Search Components:**\n`;
+  summary += `- Terms/Phrases: ${termCount}\n`;
+  summary += `- Operators: ${operatorCount}\n`;
+  summary += `- Groups: ${groupCount}\n\n`;
+  
+  summary += `**Execution Order:**\n`;
+  summary += `1. Parse query into components\n`;
+  summary += `2. Process groups (parentheses) first\n`;
+  summary += `3. Execute NOT operations\n`;
+  summary += `4. Execute proximity operations (W/, PRE/)\n`;
+  summary += `5. Execute AND operations\n`;
+  summary += `6. Execute OR operations\n`;
+  summary += `7. Combine and return results\n\n`;
+  
+  summary += `**Expected Result Set Size:** ${predictResultSize(node)}\n`;
+  
+  return summary;
+}
+
+function getTreeIcon(type: string, impact: string): string {
   switch (type) {
-    case 'parse': return '🔍';
-    case 'boolean': return '🔗';
+    case 'or': return '🔀';
+    case 'and': return '🔗';
+    case 'not': return '🚫';
     case 'proximity': return '↔️';
-    case 'search': return '📝';
-    case 'result': return '✅';
+    case 'phrase': return '📝';
+    case 'term': return '🔍';
+    case 'group': return '📦';
+    case 'complex': return '🧩';
+    case 'mixed': return '🎭';
+    case 'empty': return '❌';
     default: return '⚙️';
   }
 }
 
-// Interface definitions for flow analysis
-interface FlowStep {
-  step: number;
-  operation: string;
-  input: string;
-  output: string;
-  description: string;
-  type: 'parse' | 'boolean' | 'proximity' | 'search' | 'result' | 'other';
-  performance?: string;
+function getImpactBadge(impact: string): string {
+  switch (impact) {
+    case 'fast': return '🟢 Fast';
+    case 'moderate': return '🟡 Moderate';
+    case 'slow': return '🔴 Slow';
+    case 'none': return '⚫ No Impact';
+    case 'variable': return '🟠 Variable';
+    default: return '⚪ Unknown';
+  }
 }
 
-interface FlowToken {
-  value: string;
-  type: 'term' | 'operator' | 'group_start' | 'group_end' | 'phrase';
-  precedence: number;
+function countTerms(node: AnalysisNode): number {
+  let count = 0;
+  if (node.type === 'term' || node.type === 'phrase') {
+    count = 1;
+  }
+  if (node.children) {
+    count += node.children.reduce((sum, child) => sum + countTerms(child), 0);
+  }
+  return count;
+}
+
+function countOperators(node: AnalysisNode): number {
+  let count = 0;
+  if (['or', 'and', 'not', 'proximity'].includes(node.type)) {
+    count = 1;
+  }
+  if (node.children) {
+    count += node.children.reduce((sum, child) => sum + countOperators(child), 0);
+  }
+  return count;
+}
+
+function countGroups(node: AnalysisNode): number {
+  let count = 0;
+  if (node.type === 'group') {
+    count = 1;
+  }
+  if (node.children) {
+    count += node.children.reduce((sum, child) => sum + countGroups(child), 0);
+  }
+  return count;
+}
+
+function predictResultSize(node: AnalysisNode): string {
+  switch (node.type) {
+    case 'or': return 'Large (union of all terms)';
+    case 'and': return 'Small (intersection of terms)';
+    case 'not': return 'Variable (depends on exclusion)';
+    case 'proximity': return 'Small to Medium (proximity constraint)';
+    case 'phrase': return 'Small (exact phrase match)';
+    case 'term': return 'Medium (single term frequency)';
+    case 'group': return node.children ? predictResultSize(node.children[0]) : 'Unknown';
+    default: return 'Variable';
+  }
+}
+
+// Interface definitions for tree-based flow analysis
+interface AnalysisNode {
+  type: 'or' | 'and' | 'not' | 'proximity' | 'phrase' | 'term' | 'group' | 'complex' | 'mixed' | 'empty';
+  content: string;
+  analysis: string;
+  impact: 'fast' | 'moderate' | 'slow' | 'none' | 'variable';
+  children: AnalysisNode[];
+}
+
+interface PerformanceAnalysis {
+  score: number;
+  rating: string;
+  issues: string[];
+  recommendations: string[];
+}
+
+interface TreeAnalysis {
+  rootNode: AnalysisNode;
+  performance: PerformanceAnalysis;
+  suggestions: string[];
+  originalQuery: string;
 }
 
 // Query Tree Provider Classes

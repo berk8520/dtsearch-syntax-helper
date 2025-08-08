@@ -130,7 +130,7 @@
         {
           "id": "dtsearchQueryTree",
           "name": "dtSearch Query Tree",
-          "when": "resourceExtname == .dt || editorLangId == dtsearch",
+          "when": "resourceExtname == '.dt' || editorLangId == 'dtsearch'",
           "icon": "$(symbol-structure)"
         }
       ]
