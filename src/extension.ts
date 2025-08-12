@@ -1726,7 +1726,8 @@ function validateSyntax(document: vscode.TextDocument) {
     // Separate check for any unquoted multi-word string (not inside quotes)
     // This will catch cases like 'party house', 'yard sale', and 'mini series'
     // Updated regex: catch unquoted multi-word strings before closing parenthesis, end of line, or operator
-    const multiWordAnywherePattern = /(?<![""'])(?<!\w)([a-zA-Z]+\s+[a-zA-Z]+)(?=\s*(\)|$|AND|OR|NOT|ANDANY|NEAR|WITHIN|W\/\d+|PRE\/\d+))/g;
+  // Improved regex: only exclude matches where the first word is an operator, flag all other multi-word operands
+  const multiWordAnywherePattern = /(?<![""'])(?<!\w)((?!AND |OR |NOT |ANDANY |NEAR |WITHIN |W\/\d+ |PRE\/\d+ )[a-zA-Z]+\s+[a-zA-Z]+)(?=\s*(\)|$|AND|OR|NOT|ANDANY|NEAR|WITHIN|W\/\d+|PRE\/\d+))/g;
     while ((mwMatch = multiWordAnywherePattern.exec(line)) !== null) {
       const multiWord = mwMatch[1];
       const startIndex = mwMatch.index;
