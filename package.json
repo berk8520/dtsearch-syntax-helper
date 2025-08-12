@@ -130,7 +130,7 @@
         {
           "id": "dtsearch",
           "title": "dtSearch",
-          "icon": "$(search-view-icon)"
+          "icon": "images/dtsearch-activitybar.svg"
         }
       ]
     },
