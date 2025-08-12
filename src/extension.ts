@@ -1719,8 +1719,34 @@ function validateSyntax(document: vscode.TextDocument) {
   const lines = text.split('\n');
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+  let mwMatch;
     const line = lines[lineIndex];
     const lineNumber = lineIndex;
+
+    // Separate check for any unquoted multi-word string (not inside quotes)
+    // This will catch cases like 'party house', 'yard sale', and 'mini series'
+    // Updated regex: catch unquoted multi-word strings before closing parenthesis, end of line, or operator
+    const multiWordAnywherePattern = /(?<![""'])(?<!\w)([a-zA-Z]+\s+[a-zA-Z]+)(?=\s*(\)|$|AND|OR|NOT|ANDANY|NEAR|WITHIN|W\/\d+|PRE\/\d+))/g;
+    while ((mwMatch = multiWordAnywherePattern.exec(line)) !== null) {
+      const multiWord = mwMatch[1];
+      const startIndex = mwMatch.index;
+      const endIndex = startIndex + multiWord.length;
+      // Check if already quoted
+      const before = line.slice(0, startIndex).trimEnd();
+      const after = line.slice(endIndex).trimStart();
+      const isQuoted = before.endsWith('"') && after.startsWith('"');
+      if (!isQuoted) {
+        const range = new vscode.Range(lineNumber, startIndex, lineNumber, endIndex);
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          `Multi-word operand "${multiWord}" should be surrounded with quotes.\nExample: "${multiWord}"`,
+          vscode.DiagnosticSeverity.Error
+        );
+        diagnostic.code = 'unquoted-multiword-operand';
+        diagnostic.source = 'dtSearch';
+        diagnostics.push(diagnostic);
+      }
+    }
 
     // Check for consecutive operators (AND AND, OR OR, etc.)
     const consecutiveOperators = line.match(/\b(AND|OR|NOT|ANDANY|NEAR|WITHIN)\s+(AND|OR|NOT|ANDANY|NEAR|WITHIN)\b/gi);
@@ -1743,7 +1769,6 @@ function validateSyntax(document: vscode.TextDocument) {
       // Example: (ball OR toy OR stuffed animal) W/10 (dog OR cat)
       // Should flag "stuffed animal" if not quoted
       const multiWordOperandPattern = /(?<=\b(AND|OR|NOT|ANDANY|NEAR|WITHIN|W\/\d+|PRE\/\d+)\s+|\()([a-zA-Z]+\s+[a-zA-Z]+)(?=\s+(AND|OR|NOT|ANDANY|NEAR|WITHIN|W\/\d+|PRE\/\d+|\)|$))/g;
-      let mwMatch;
       while ((mwMatch = multiWordOperandPattern.exec(line)) !== null) {
         // Check if already quoted
         const before = line.slice(0, mwMatch.index).trimEnd();
