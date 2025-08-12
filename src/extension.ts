@@ -1739,6 +1739,31 @@ function validateSyntax(document: vscode.TextDocument) {
       });
     }
 
+      // Detect unquoted multi-word operands between operators
+      // Example: (ball OR toy OR stuffed animal) W/10 (dog OR cat)
+      // Should flag "stuffed animal" if not quoted
+      const multiWordOperandPattern = /(?<=\b(AND|OR|NOT|ANDANY|NEAR|WITHIN|W\/\d+|PRE\/\d+)\s+|\()([a-zA-Z]+\s+[a-zA-Z]+)(?=\s+(AND|OR|NOT|ANDANY|NEAR|WITHIN|W\/\d+|PRE\/\d+|\)|$))/g;
+      let mwMatch;
+      while ((mwMatch = multiWordOperandPattern.exec(line)) !== null) {
+        // Check if already quoted
+        const before = line.slice(0, mwMatch.index).trimEnd();
+        const after = line.slice(mwMatch.index + mwMatch[0].length).trimStart();
+        const isQuoted = before.endsWith('"') && after.startsWith('"');
+        if (!isQuoted) {
+          const startIndex = mwMatch.index;
+          const endIndex = mwMatch.index + mwMatch[0].length;
+          const range = new vscode.Range(lineNumber, startIndex, lineNumber, endIndex);
+          const diagnostic = new vscode.Diagnostic(
+            range,
+            `Multi-word operand "${mwMatch[0]}" should be surrounded with quotes.
+  Example: "${mwMatch[0]}"`,
+            vscode.DiagnosticSeverity.Error
+          );
+          diagnostic.code = 'unquoted-multiword-operand';
+          diagnostic.source = 'dtSearch';
+          diagnostics.push(diagnostic);
+        }
+      }
     // Check for operator at start of query (except NOT)
     const startOperatorMatch = line.match(/^\s*(AND|OR|ANDANY|NEAR|WITHIN)\b/i);
     if (startOperatorMatch && startOperatorMatch[1].toUpperCase() !== 'NOT') {
