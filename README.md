@@ -47,6 +47,7 @@ This extension contributes the following settings:
 * `DT Search: Clean Up Query` (`Ctrl+Shift+F`): Format and normalize selected query text
 * `DT Search: Toggle Syntax Highlighting`: Enable/disable highlighting for current editor
 * `DT Search: Show Operator Help` (`F1` in .dts files): Display comprehensive operator reference
+* `DT Search: Show Microsoft Purview Export Guide`: Learn about Microsoft Purview export structure and file types
 
 ## License
 

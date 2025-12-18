@@ -158,6 +158,12 @@ export function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(showOperatorHelp);
 
+  // DT Search: Show Purview Export Help command
+  let showPurviewHelp = vscode.commands.registerCommand('dtsearchsyntaxhelper.showPurviewHelp', () => {
+    showPurviewHelpPanel();
+  });
+  context.subscriptions.push(showPurviewHelp);
+
   // Register event listeners for active editor changes
   vscode.window.onDidChangeActiveTextEditor(editor => {
     // Reset force mode when switching editors
@@ -343,6 +349,167 @@ function getHelpContent(): string {
     
     <h2>Noise Words (highlighted in <span class="noise-word">magenta</span>)</h2>
     <p>These common words are typically ignored by dtSearch: a, an, and, are, as, at, be, by, for, from, has, he, in, is, it, of, on, that, the, to, was, will, with...</p>
+</body>
+</html>`;
+}
+
+function showPurviewHelpPanel() {
+  const panel = vscode.window.createWebviewPanel(
+    'purviewHelp',
+    'Microsoft Purview Export Guide',
+    vscode.ViewColumn.Beside,
+    {}
+  );
+
+  panel.webview.html = getPurviewHelpContent();
+}
+
+function getPurviewHelpContent(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Microsoft Purview Export Structure</title>
+    <style>
+        body { 
+            font-family: var(--vscode-font-family); 
+            color: var(--vscode-foreground); 
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 { color: #007acc; border-bottom: 2px solid #007acc; padding-bottom: 10px; }
+        h2 { color: #4ec9b0; margin-top: 25px; }
+        h3 { color: #569cd6; margin-top: 20px; }
+        .section { margin: 15px 0; }
+        .file-type { 
+            background: var(--vscode-textBlockQuote-background); 
+            padding: 10px; 
+            margin: 10px 0; 
+            border-left: 4px solid #007acc;
+        }
+        .file-name { 
+            color: #ce9178; 
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+        .path { 
+            color: #4ec9b0; 
+            font-family: 'Courier New', monospace;
+        }
+        .note {
+            background: var(--vscode-textBlockQuote-background);
+            padding: 10px;
+            border-left: 4px solid #feca57;
+            margin: 10px 0;
+        }
+        ul { margin: 10px 0; padding-left: 25px; }
+        li { margin: 5px 0; }
+        code {
+            background: var(--vscode-textCodeBlock-background);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>📁 Microsoft Purview Export Structure</h1>
+    
+    <div class="section">
+        <p>When exporting content from <strong>Microsoft Purview</strong> (formerly Microsoft 365 Compliance / eDiscovery), the export package contains several directories with different types of files. Understanding this structure is essential for working with dtSearch queries on exported data.</p>
+    </div>
+
+    <h2>SubstrateFiles\\SPOOLS Directory</h2>
+    
+    <div class="file-type">
+        <h3>📦 File Types in SPOOLS Directory</h3>
+        <p>The <span class="path">SubstrateFiles\\SPOOLS</span> directory contains <strong>native format files</strong> exported from SharePoint Online and Microsoft Teams. These are the original files as they existed in the source location.</p>
+        
+        <h4>Common File Types:</h4>
+        <ul>
+            <li><span class="file-name">.docx</span> - Microsoft Word documents</li>
+            <li><span class="file-name">.xlsx</span> - Microsoft Excel spreadsheets</li>
+            <li><span class="file-name">.pptx</span> - Microsoft PowerPoint presentations</li>
+            <li><span class="file-name">.pdf</span> - PDF documents</li>
+            <li><span class="file-name">.msg</span> - Outlook message files (emails from Teams)</li>
+            <li><span class="file-name">.eml</span> - Email message files</li>
+            <li><span class="file-name">.txt</span> - Plain text files</li>
+            <li><span class="file-name">.html / .htm</span> - HTML files</li>
+            <li><span class="file-name">.jpg / .png / .gif</span> - Image files</li>
+            <li><span class="file-name">.zip / .7z / .rar</span> - Archive files</li>
+            <li><span class="file-name">.mp4 / .avi / .mov</span> - Video files</li>
+            <li><span class="file-name">.mp3 / .wav</span> - Audio files</li>
+            <li><span class="file-name">.one</span> - OneNote files</li>
+            <li><span class="file-name">.vsd / .vsdx</span> - Visio diagrams</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>📌 Important Note:</strong> Files in the SPOOLS directory maintain their <strong>original native format</strong>. This means they can be opened with their associated applications and retain all metadata, formatting, and embedded content.
+    </div>
+
+    <h2>Other Directories in Purview Exports</h2>
+
+    <div class="file-type">
+        <h3>📂 Common Export Structure</h3>
+        <ul>
+            <li><strong><span class="path">NativeFiles\\</span></strong> - Native format files from Exchange (emails, calendar items)</li>
+            <li><strong><span class="path">SubstrateFiles\\SPOOLS\\</span></strong> - Native format files from SharePoint and Teams</li>
+            <li><strong><span class="path">TextFiles\\</span></strong> - Extracted text content for indexing</li>
+            <li><strong><span class="path">ErrorFiles\\</span></strong> - Files that could not be processed</li>
+            <li><strong><span class="path">LoadFile\\</span></strong> - CSV/DAT files with metadata for loading into review tools</li>
+            <li><strong><span class="path">Summary\\</span></strong> - Export summary reports and manifests</li>
+        </ul>
+    </div>
+
+    <h2>Working with Exported Files in dtSearch</h2>
+
+    <div class="section">
+        <p>When creating dtSearch indexes for Purview exports:</p>
+        <ul>
+            <li>Point your dtSearch index to the <code>SubstrateFiles\\SPOOLS</code> directory to index SharePoint and Teams content</li>
+            <li>Include the <code>NativeFiles</code> directory for Exchange content (emails)</li>
+            <li>Use <code>TextFiles</code> for faster indexing of text-only content</li>
+            <li>Ensure dtSearch file parsers are enabled for all expected file types</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>💡 Tip:</strong> When building dtSearch queries for Purview exports, consider using field searches like <code>fileext(docx)</code> or <code>filepath(*SPOOLS*)</code> to target specific file types or locations within the export structure.
+    </div>
+
+    <h2>Metadata and Load Files</h2>
+
+    <div class="section">
+        <p>The <span class="path">LoadFile</span> directory contains structured metadata files that can be imported into legal review platforms. These files provide:</p>
+        <ul>
+            <li>Document identifiers and control numbers</li>
+            <li>File paths to native and text files</li>
+            <li>Custodian and location information</li>
+            <li>Date/time metadata</li>
+            <li>Subject, author, and other document properties</li>
+        </ul>
+    </div>
+
+    <h2>Best Practices</h2>
+
+    <div class="section">
+        <ul>
+            <li>Always verify file counts match the export summary before indexing</li>
+            <li>Check the <span class="path">ErrorFiles</span> directory for processing failures</li>
+            <li>Use dtSearch's built-in file type detection when indexing mixed content</li>
+            <li>Consider deduplication based on hash values from metadata files</li>
+            <li>Test queries on a subset before running large batch searches</li>
+        </ul>
+    </div>
+
+    <div class="note">
+        <strong>🔗 Related Resources:</strong><br>
+        • Microsoft Purview eDiscovery documentation<br>
+        • dtSearch file format support guide<br>
+        • Legal hold and export compliance guidelines
+    </div>
 </body>
 </html>`;
 }
