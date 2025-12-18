@@ -37,6 +37,10 @@
       {
         "command": "dtsearchsyntaxhelper.showOperatorHelp",
         "title": "DT Search: Show Operator Help"
+      },
+      {
+        "command": "dtsearchsyntaxhelper.showPurviewHelp",
+        "title": "DT Search: Show Microsoft Purview Export Guide"
       }
     ],
     "menus": {
@@ -50,6 +54,10 @@
           "command": "dtsearchsyntaxhelper.showOperatorHelp",
           "when": "resourceExtname == .dts",
           "group": "navigation"
+        },
+        {
+          "command": "dtsearchsyntaxhelper.showPurviewHelp",
+          "group": "navigation"
         }
       ],
       "commandPalette": [
@@ -60,6 +68,9 @@
         {
           "command": "dtsearchsyntaxhelper.showOperatorHelp",
           "when": "editorLangId == dtsearch"
+        },
+        {
+          "command": "dtsearchsyntaxhelper.showPurviewHelp"
         }
       ]
     },
