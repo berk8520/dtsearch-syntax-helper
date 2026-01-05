@@ -48,6 +48,10 @@ This extension contributes the following settings:
 * `DT Search: Toggle Syntax Highlighting`: Enable/disable highlighting for current editor
 * `DT Search: Show Operator Help` (`F1` in .dts files): Display comprehensive operator reference
 
+## Documentation
+
+For technical notes and additional information, see [TECHNICAL-NOTES.md](TECHNICAL-NOTES.md).
+
 ## License
 
 MIT License - see LICENSE file for details.
